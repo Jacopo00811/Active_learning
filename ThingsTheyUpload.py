@@ -87,7 +87,7 @@ def validate_model(model, val_loader, device):
 
 # Setup model
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = torchvision.models.resnet18(pretrained=False)
+model = torchvision.models.resnet18(weights=None)
 model.fc = torch.nn.Linear(model.fc.in_features, 10)
 # Modify input layer to accept 1 channel
 model.conv1 = torch.nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
