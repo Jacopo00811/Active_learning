@@ -174,5 +174,3 @@ plt.legend()
 plt.tight_layout()
 plt.savefig('figs/accuracy.png')
 plt.show()
-AL_intro.py
-Visualizzazione di AL_intro.py.
