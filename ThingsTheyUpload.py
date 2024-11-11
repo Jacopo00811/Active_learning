@@ -86,7 +86,7 @@ def validate_model(model, val_loader, device):
     return 100 * correct / total
 
 # Setup model
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
 model = torchvision.models.resnet18(weights=None)
 model.fc = torch.nn.Linear(model.fc.in_features, 10)
 # Modify input layer to accept 1 channel
