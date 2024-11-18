@@ -12,19 +12,29 @@ import random
 
 
 # To-do:
+# * Implement a bunch of new AL-algorithms
+# * Check if random seed works, and makes the results reproducible / deterministic. If rerun with current config, should give the following result:
+    #Budget Strategy 1 Completed, Comparing AL-Algorithms & Visualizing Results...
+    #    AL-Algorithm: Random, Final Test Performance: 48.96%
+    #    AL-Algorithm: Uncertainty, Final Test Performance: 47.79%
+
+
+# Max will do:
 # * Track the time for each iteration, AL-algorithm run, budget strategy run and the entire run, store in the end.
-# * Implement new AL-algorithms
-# * Implement ability to run multiple runs with different seeds. MAKE SURE RANDOM INITIALIZATION WORKS PROPERLY, TEST EACH ALGORITHM WITH RANDOM INITIALIZATION FOR EACH RUN AND MAKE SURE IT IS CONSISTENT. Needs to dynamically switch over to average
-# * For HPC: Do 5 runs, each with different seeds, for each budget strategy and AL-algorithm using, and then average them out, to ensure that the differences in the AL-algorithm results are not due to local optima in the randomnes. Plot the average alongg with the standard deviation.
+# * Implement ability to run multiple runs with different seeds. MAKE SURE RANDOM INITIALIZATION WORKS PROPERLY, TEST EACH FUNCTION WITH RANDOM INITIALIZATION FOR EACH RUN AND MAKE SURE IT IS CONSISTENT. Needs to dynamically switch over to average
+# * Implement in preparation for HPC: Do 5 runs, each with different seeds, for each budget strategy and AL-algorithm using, and then average them out, to ensure that the differences in the AL-algorithm results are not due to local optima in the randomnes. Plot the average alongg with the standard deviation.
+# * Add debug option to remove AL print statements, will be important for HPC runs
 
 
-### AL parameters ###
+
+
+### Active Learning Algorithm Parameters ###
 seeds = [0] # Set random seed to decrease uncertainty
 al_algorithms = ['random', 'uncertainty'] # Active Learning algorithms to run
 run_all_labelled_baseline = False # Enable to run the model with all labelled data to establish maximum performance baseline
 
 
-## Budget Strategies ##
+### Budget Strategy Parameters ###
 NUM_ITERATIONS = 20 # Number of iterations (budget increases) to run for each budget strategy
 INITIAL_LABEL_SIZE_TO_BATCH_SIZE_RATIO = 3
 enable_budget_strategies = [True, False, False, False] # Enable/disable budget strategies (1, 2, 3, 4)
@@ -38,11 +48,12 @@ EPOCHS = 5 # Number of epochs to train the model for each budget size
 epoch_training_status = False # Prints epochs + validation accuracy. Set to False for cleaner output
 
 
-
-# Define relative folder and file path
+### File Saving Parameters ###
+save_results = True
+# Define relative save folder
 relative_folder = "./run_results"
 
-# Preset abbreviations for algorithms
+# Define preset abbreviations for algorithms (used for file naming)
 algorithm_abbreviations = {
     'random': 'ran',
     'uncertainty': 'unc',
@@ -50,6 +61,10 @@ algorithm_abbreviations = {
     'entropy': 'ent'      # Example additional algorithm
 }
 
+
+
+
+# Data dictionary to store all data
 all_rounds_data = {}
 active_budget_strategies = [i for i, value in enumerate(enable_budget_strategies) if value]
 
@@ -65,7 +80,6 @@ all_rounds_data["config"] = {
     "TRAIN_VAL_RATIO": TRAIN_VAL_RATIO,
     "EPOCHS": EPOCHS
 }
-
 
 # Set random seed for reproducibility
 torch.manual_seed(seeds[0])
@@ -101,6 +115,29 @@ full_train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True, gener
 val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False, generator=generator)
 test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False, generator=generator)
 
+
+# Uncertainty Sampling (Least Confidence)
+def uncertainty_sampling_least_confidence(model, unlabelled_loader, label_batch_size):
+    model.eval()
+    uncertainties = []
+    samples_indices = []
+    with torch.no_grad():
+        for idx, (images, _) in enumerate(unlabelled_loader):
+            images = images.to(device)
+            outputs = model(images)
+            softmax_outputs = torch.nn.functional.softmax(outputs, dim=1)
+            max_confidences, _ = torch.max(softmax_outputs, dim=1)
+            uncertainties.extend(1 - max_confidences.cpu().numpy())
+            samples_indices.extend([idx] * images.size(0))
+
+    uncertain_indices = np.argsort(uncertainties)[-label_batch_size:]
+    selected_indices = [samples_indices[i] for i in uncertain_indices]
+    return selected_indices
+
+# Random Sampling Strategy
+def random_sampling(unlabelled_loader, label_batch_size):
+    indices = list(range(len(unlabelled_loader.dataset)))
+    return np.random.choice(indices, label_batch_size, replace=False).tolist()
 
 # Reset model weights
 def reset_model_weights(model):
@@ -148,29 +185,6 @@ def baseline_full_data_performance(model, train_loader, val_loader, test_loader,
     train_model(model, train_loader, val_loader, epochs=epochs, epoch_training_status=epoch_training_status)
     test_accuracy = evaluate_model(model, test_loader)
     print(f"Maximum Performance Baseline - Test Accuracy: {test_accuracy:.2f}%")
-
-# Uncertainty Sampling (Least Confidence)
-def uncertainty_sampling_least_confidence(model, unlabelled_loader, label_batch_size):
-    model.eval()
-    uncertainties = []
-    samples_indices = []
-    with torch.no_grad():
-        for idx, (images, _) in enumerate(unlabelled_loader):
-            images = images.to(device)
-            outputs = model(images)
-            softmax_outputs = torch.nn.functional.softmax(outputs, dim=1)
-            max_confidences, _ = torch.max(softmax_outputs, dim=1)
-            uncertainties.extend(1 - max_confidences.cpu().numpy())
-            samples_indices.extend([idx] * images.size(0))
-
-    uncertain_indices = np.argsort(uncertainties)[-label_batch_size:]
-    selected_indices = [samples_indices[i] for i in uncertain_indices]
-    return selected_indices
-
-# Random Sampling Strategy
-def random_sampling(unlabelled_loader, label_batch_size):
-    indices = list(range(len(unlabelled_loader.dataset)))
-    return np.random.choice(indices, label_batch_size, replace=False).tolist()
 
 # Active Learning Loop with Query Strategy Selection and Model Reset
 def active_learning_loop(model, num_iterations, initial_labelled_dataset_size, label_batch_size, al_algorithm):
@@ -238,8 +252,8 @@ def active_learning_loop(model, num_iterations, initial_labelled_dataset_size, l
 if run_all_labelled_baseline:
     baseline_full_data_performance(model, full_train_loader, val_loader, test_loader, epochs=EPOCHS)
 
-# Run full AL run (20 iterations for each l0, batch_size config) for each AL-strategy
-# For each budget strategy, visualize and compare all AL strategies
+
+# For each budget strategy, train, evaluate, visualize and compare all AL strategies
 for i in active_budget_strategies:
     initial_labelled_dataset_size = strategy_initial_labelled_dataset_sizes[i]
     label_batch_size = strategy_label_batch_sizes[i]
@@ -298,10 +312,11 @@ file_path = os.path.join(relative_folder, file_name)
 # Ensure the folder exists
 os.makedirs(relative_folder, exist_ok=True)
 
-# Save the dictionary as a JSON file
-with open(file_path, "w") as file:
-    json.dump(all_rounds_data, file, indent=4)
+if save_results:
+    # Save the dictionary as a JSON file
+    with open(file_path, "w") as file:
+        json.dump(all_rounds_data, file, indent=4)
 
-print(f"Data {file_name} saved to {file_path}")
+    print(f"Data {file_name} saved to {file_path}")
 
 
