@@ -11,19 +11,21 @@ import matplotlib.pyplot as plt
 
 
 ### AL parameters ###
-seed = 0 # Consider defining a list of seeds
-num_iterations = 20
-budgets = 1 # Set to 4 for all 4 dataset initializations
-label_batch_sizes = [200, 400, 800, 1600] # 10%, 20%, 40%, 80% of the dataset is labelled after 20 iterations
-l0_sizes = [3*label_batch_size for label_batch_size in label_batch_sizes] # 3 times ...
-al_strategies = ['random', 'uncertainty']
-run_all_labelled_baseline = False
+seed = 0 # Set random seed to decrease uncertainty. Consider defining a list of seeds
+al_algorithms = ['random', 'uncertainty'] # Active Learning algorithms to run
+run_all_labelled_baseline = False # Enable to run the model with all labelled data to establish maximum performance baseline
+
+## Budget Strategies ##
+num_iterations = 20 # Number of iterations (budget increases) to run for each budget strategy
+enable_budget_strategies = [True, False, True, False] # Enable/disable budget strategies (1, 2, 3, 4)
+strategy_label_batch_sizes = [200, 400, 800, 1600] # Labels added per iteration for each budget strategy, corresponding to 10%, 20%, 40%, 80% of the dataset labelled after 20 iterations depending on the budget strategy
+strategy_initial_labelled_dataset_sizes = [3*label_batch_size for label_batch_size in strategy_label_batch_sizes] # Initial budget strategy labelled dataset sizes are set to 3x the label batch size
 
 
-### Hyperparameters ###
-TRAIN_SUBSET_RATIO = 0.8
-EPOCHS = 5
-debug = False # Shows epochs + validation accuracy
+### Model Hyperparameters ###
+TRAIN_SUBSET_RATIO = 0.8 # Ratio of training data to use for training (remaining is used for validation)
+EPOCHS = 5 # Number of epochs to train the model for each budget size
+debug = False # Prints epochs + validation accuracy. Set to False for cleaner output
 
 
 # Set random seed for reproducibility
@@ -35,6 +37,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.ba
 model = torchvision.models.resnet18(weights=None)
 model.fc = nn.Linear(model.fc.in_features, 10)
 model = model.to(device)
+print(f"Model: {model.__class__.__name__}, Device: {device}\n")
 
 # Load CIFAR-10 with transformations
 transform = transforms.Compose([
@@ -128,17 +131,24 @@ def random_sampling(unlabelled_loader, label_batch_size):
     return np.random.choice(indices, label_batch_size, replace=False).tolist()
 
 # Active Learning Loop with Query Strategy Selection and Model Reset
-def active_learning_loop(model, num_iterations, l0_size, label_batch_size, al_strategy):
-    # Initialize labelled and unlabelled datasets
-    labelled_indices = np.random.choice(len(train_dataset), l0_size, replace=False)
-    labelled_dataset = Subset(train_dataset, labelled_indices)
+def active_learning_loop(model, num_iterations, initial_labelled_dataset_size, label_batch_size, al_algorithm):
+    # Define the global indices for the original dataset. Used to map labelled and unlabelled indices to the original dataset
 
-    unlabelled_indices = list(set(range(len(train_dataset))) - set(labelled_indices))
-    unlabelled_dataset = Subset(train_dataset, unlabelled_indices)
-    
+    # Initialize labelled and unlabelled datasets
+    labelled_indices_global = np.random.choice(len(train_dataset), initial_labelled_dataset_size, replace=False)
+    labelled_dataset_relative = Subset(train_dataset, labelled_indices_global)
+
+    unlabelled_indices_global = list(set(range(len(train_dataset))) - set(labelled_indices_global))
+    unlabelled_dataset_relative = Subset(train_dataset, unlabelled_indices_global)
+
+    # AL strategies only retrieve the relative indices of the unlabelled dataset (subset of full training dataset).
+    # These relative indices need to be converted to the equivalent global indices in the full training dataset before they can be added to the labelled dataset.
+    # Therefore we define a map from relative unlabelled indices to global indices.
+    unlabelled_relative_to_global_indices_map = {relative_idx: global_idx for relative_idx, global_idx in enumerate(unlabelled_indices_global)}
+
     # Initialize labelled and unlabelled train loader
-    labelled_train_loader = DataLoader(labelled_dataset, batch_size=64, shuffle=True)
-    unlabelled_train_loader = DataLoader(unlabelled_dataset, batch_size=64, shuffle=False)
+    labelled_train_loader_relative = DataLoader(labelled_dataset_relative, batch_size=64, shuffle=True)
+    unlabelled_train_loader_relative = DataLoader(unlabelled_dataset_relative, batch_size=64, shuffle=False)
     accuracies = []
     training_set_sizes = []
 
@@ -147,30 +157,38 @@ def active_learning_loop(model, num_iterations, l0_size, label_batch_size, al_st
         # Reset model weights at the start of each iteration
         reset_model_weights(model)
 
-        train_model(model, labelled_train_loader, val_loader, epochs=EPOCHS, debug=debug)
+        train_model(model, labelled_train_loader_relative, val_loader, epochs=EPOCHS, debug=debug)
         test_accuracy = evaluate_model(model, test_loader)
         accuracies.append(test_accuracy)
-        training_set_sizes.append(len(labelled_dataset))
+        training_set_sizes.append(len(labelled_dataset_relative))
 
-        print(f"    Budget {i+1}, Train set size: {training_set_sizes[i]}, Test Accuracy: {test_accuracy:.2f}%")
+        print(f"    AL Iteration {i+1}/{num_iterations}, Current Train Set Size: {training_set_sizes[i]}, Test Accuracy: {test_accuracy:.2f}%")
 
         # Select indices to label based on selected AL strategy
-        if al_strategy == "uncertainty":
-            selected_indices = uncertainty_sampling_least_confidence(model, unlabelled_train_loader, label_batch_size)
-        elif al_strategy == "random":
-            selected_indices = random_sampling(unlabelled_train_loader, label_batch_size)
+        if al_algorithm == "uncertainty":
+            selected_unlabelled_relative_indices = uncertainty_sampling_least_confidence(model, unlabelled_train_loader_relative, label_batch_size)
+        elif al_algorithm == "random":
+            selected_unlabelled_relative_indices = random_sampling(unlabelled_train_loader_relative, label_batch_size)
         else:
             raise ValueError("Unsupported strategy!")
 
-        # Label selected unlabelled indices, and redefine labelled and unlabelled train loaders with new subsets
-        labelled_indices = np.concatenate([labelled_indices, selected_indices])
-        labelled_dataset = Subset(train_dataset, labelled_indices)
-        
-        unlabelled_indices = list(set(unlabelled_indices) - set(selected_indices))
-        unlabelled_dataset = Subset(train_dataset, unlabelled_indices)
-        
-        labelled_train_loader = DataLoader(labelled_dataset, batch_size=64, shuffle=True)
-        unlabelled_train_loader = DataLoader(unlabelled_dataset, batch_size=64, shuffle=False)
+        # Convert selected relative indices from unlabelled dataset to global indices from train_dataset
+        selected_unlabelled_global_indices = [unlabelled_relative_to_global_indices_map[relative_idx] for relative_idx in selected_unlabelled_relative_indices]
+
+        # Add the selected data points to the labelled dataset (which already has global indices)
+        labelled_indices_global = np.concatenate([labelled_indices_global, selected_unlabelled_global_indices])
+        labelled_dataset_relative = Subset(train_dataset, labelled_indices_global)
+
+        # Remove the selected global indices from the unlabelled global indices
+        unlabelled_indices_global = list(set(unlabelled_indices_global) - set(selected_unlabelled_global_indices))
+        # Update the map from relative unlabelled indices to global indices (since the size of the unlabelled dataset has changed)
+        unlabelled_relative_to_global_indices_map = {relative_idx: global_idx for relative_idx, global_idx in enumerate(unlabelled_indices_global)}
+        # Update the unlabelled dataset with the new unlabelled indices
+        unlabelled_dataset_relative = Subset(train_dataset, unlabelled_indices_global)
+
+        labelled_train_loader_relative = DataLoader(labelled_dataset_relative, batch_size=64, shuffle=True)
+        unlabelled_train_loader_relative = DataLoader(unlabelled_dataset_relative, batch_size=64, shuffle=False)
+
     return training_set_sizes, accuracies
 
 
@@ -180,37 +198,43 @@ if run_all_labelled_baseline:
 
 # Run full AL run (20 iterations for each l0, batch_size config) for each AL-strategy
 all_rounds = {}
-for al_strategy in al_strategies:
-    all_rounds[al_strategy] = {}
-    for i in range(budgets):
-        all_rounds[al_strategy][f"budget_{i+1}"] = {}
+active_budget_strategies = [i for i, value in enumerate(enable_budget_strategies) if value]
 
-        # Initialize batch_size for
-        l0_size = l0_sizes[i]
-        label_batch_size = label_batch_sizes[i]
+# For each budget strategy, visualize and compare all AL strategies
+for i in active_budget_strategies:
+    initial_labelled_dataset_size = strategy_initial_labelled_dataset_sizes[i]
+    label_batch_size = strategy_label_batch_sizes[i]
 
-        print(f"Active Learning Strategy: {al_strategy}, Round: {i+1}, L0 Size: {l0_size}, Batch Size: {label_batch_size}")
+    budget_size =  initial_labelled_dataset_size + label_batch_size*num_iterations
 
+    print(f"\nBudget Strategy {i+1}: Total Budget size: {budget_size}, Iterations: {num_iterations}, Initial Size: {initial_labelled_dataset_size}, Label Batch Size: {label_batch_size}")
+
+    all_rounds[f"budget_strategy_{i+1}"] = {}
+
+    for al_strategy in al_algorithms:
+        print(f"  Running Active Learning Algorithm: {al_strategy.capitalize()}...")
+
+        all_rounds[f"budget_strategy_{i+1}"][al_strategy] = {}
+        
         # Run active learning loop, return training set sizes and corresponding test accuracies
-        training_set_sizes, accuracies = active_learning_loop(model=model, num_iterations=num_iterations, l0_size=l0_size, label_batch_size=label_batch_size, al_strategy=al_strategy)
+        training_set_sizes, accuracies = active_learning_loop(model=model, num_iterations=num_iterations, initial_labelled_dataset_size=initial_labelled_dataset_size, label_batch_size=label_batch_size, al_algorithm=al_strategy)
 
         # Store
-        all_rounds[al_strategy][f"budget_{i+1}"]["training_set_sizes"] = training_set_sizes
-        all_rounds[al_strategy][f"budget_{i+1}"]["accuracies"] = accuracies
+        all_rounds[f"budget_strategy_{i+1}"][al_strategy]["training_set_sizes"] = training_set_sizes
+        all_rounds[f"budget_strategy_{i+1}"][al_strategy]["accuracies"] = accuracies
+        
+        print(f"    AL-Algorithm: {al_strategy.capitalize()}, Final Test Performance: {accuracies[-1]:.2f}%")
 
-# For each budget size, visualize and compare all AL strategies
-for i in range(budgets):
-    budget_size = label_batch_sizes[i]*num_iterations + l0_sizes[i]
-    print(f"\nBudget {i+1}, Total Budget size: {budget_size}, Iterations: {num_iterations}, Initial Size: {l0_sizes[i]}, Label Batch Size: {label_batch_sizes[i]}")
+    print(f"\nBudget Strategy {i+1} Completed, Comparing AL-Algorithms & Visualizing Results...")
     plt.figure()
-    for al_strategy in al_strategies:
-        training_set_size = all_rounds[al_strategy][f"budget_{i+1}"]["training_set_sizes"]
-        accuracies = all_rounds[al_strategy][f"budget_{i+1}"]["accuracies"]
+    for al_strategy in al_algorithms:
+        training_set_size = all_rounds[f"budget_strategy_{i+1}"][al_strategy]["training_set_sizes"]
+        accuracies = all_rounds[f"budget_strategy_{i+1}"][al_strategy]["accuracies"]
         plt.plot(training_set_sizes, accuracies, label=f"{al_strategy.capitalize()}",marker='o')
-        print(f"    AL-strategy: {al_strategy.capitalize()}, Final Test Performance: {accuracies[-1]:.2f}%")
+        print(f"    AL-Algorithm: {al_strategy.capitalize()}, Final Test Performance: {accuracies[-1]:.2f}%")
     plt.xlabel('Training Set Size')
     plt.ylabel('Test Accuracy (%)')
-    plt.title(f'Active Learning: Labelled Training Set Size VS Test Accuracy - Round {i+1})')
+    plt.title(f'Active Learning: Labelled Training Set Size VS Test Accuracy - Budget Strategy {i+1})')
     plt.grid(True)
     plt.legend()
     plt.show()
