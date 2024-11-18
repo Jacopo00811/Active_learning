@@ -21,7 +21,7 @@ class Typiclust:
         self.hyperparameters = hyperparameters
         self.n_clusters = n_clusters
         self.device = device
-        self.model = MultiModel(backbone=hyperparameters['backbone'], hyperparameters=hyperparameters, load_pretrained=False)
+        self.model = MultiModel(backbone=hyperparameters['backbone'], hyperparameters=hyperparameters, load_pretrained=True)
         self.model.to(self.device)
         self.feature_extractor = nn.Sequential(*list(self.model.pretrained_model.children())[:-1])  # Remove final FC layer
 
@@ -80,17 +80,18 @@ class Typiclust:
         print("Extracting features...")
         features, labels = self.extract_features(dataloader)
         print("Normalizing and reducing features...")
-        # reduced_features, pca, explained_variance = self.normalize_and_reduce(features) ###
+        reduced_features, pca, explained_variance = self.normalize_and_reduce(features) ###
         # Print the cumulative explained variance
-        # print("Cumulative explained variance ratio:", explained_variance) ####
+        print("Cumulative explained variance ratio:", explained_variance) ####
         # plot_explained_variance(explained_variance) #
         print("Clustering features...")
-        # cluster_labels, kmeans = self.cluster_features(reduced_features) ###
+        cluster_labels, kmeans = self.cluster_features(reduced_features) ###
         cluster_labels, kmeans = self.cluster_features(features)
 
         print("Clustering completed.")
-        # return reduced_features, labels, cluster_labels, kmeans, pca ###
-        return features, labels, cluster_labels, kmeans, None
+        return reduced_features, labels, cluster_labels, kmeans, pca ###
+        # return features, labels, cluster_labels, kmeans, None
+
 
 
 def find_top_n_typical_samples(features, cluster_labels, kmeans, n=1):
@@ -301,7 +302,7 @@ print("Device:", hyperparameters['device'])
 transform = transforms.Compose([
     transforms.ToImage(),
     transforms.ToDtype(torch.float32, scale=True),     # subtract 0.5 and divide by 0.5
-     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
 train_set = torchvision.datasets.CIFAR10(
     root='./data', train=True, download=False, transform=transform)
