@@ -7,7 +7,7 @@ import torchvision
 from torchvision import datasets, transforms
 import matplotlib.pyplot as plt
 import time
-from util_functions import set_global_seed, format_time, plot_al_performance_across_seeds, train_model_full_dataset_baseline, active_learning_loop
+from util_functions import *
 
 
 
@@ -29,10 +29,11 @@ EPOCHS = 3 # Number of epochs to train the model for each budget size
 
 ## Active Learning Algorithm Parameters ##
 NUM_TRAIN_AL_ITERATIONS = 10 # Number of Train/AL iterations to run for each algorithm for budget strategy
-al_algorithms = ['random', 'uncertainty'] # Active Learning algorithms to run
+al_algorithms = ['random', 'uncertainty', 'typiclust'] # Active Learning algorithms to run
 algorithm_abbreviations = { # Abbreviations for each algorithm, used for file naming
     'random': 'ran',
     'uncertainty': 'unc',
+    'typiclust': 'typ',
     'margin': 'mar',      # Example additional algorithm, not implemented yet
     'entropy': 'ent'      # Example additional algorithm, not implemented yet
 }

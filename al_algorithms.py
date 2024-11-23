@@ -24,3 +24,7 @@ def uncertainty_sampling_least_confidence(device, model, unlabelled_loader_relat
 def random_sampling(unlabelled_loader_relative, label_batch_size):
     indices = list(range(len(unlabelled_loader_relative.dataset)))
     return np.random.choice(indices, label_batch_size, replace=False).tolist()
+
+# Typiclus Sampling Strategy
+def typiclus_sampling(model, unlabelled_loader_relative, budget):
+    return model.active_learning_iteration(budget, unlabelled_loader_relative)

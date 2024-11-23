@@ -7,8 +7,8 @@ import matplotlib.pyplot as plt
 import random
 from scipy import stats
 import time
-from al_algorithms import uncertainty_sampling_least_confidence, random_sampling
-
+from al_algorithms import *
+from Typiclust import Typiclust
 
 def format_time(seconds):
     """
@@ -266,6 +266,10 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
     training_time_total = 0
     al_algorithm_time_total = 0
 
+    # Initialize Typiclust object if typiclust AL algorithm is selected
+    typiclust = None
+    typiclust_backbone = 'resnet152'
+
     # Loop through active learning iterations
     for i in range(num_train_al_iterations+1):
         iter_time = time.time()
@@ -288,6 +292,12 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
                 selected_unlabelled_relative_indices = random_sampling(
                     unlabelled_loader_relative=unlabelled_loader_relative, 
                     label_batch_size=label_batch_size
+                )
+            elif al_algorithm == "typiclust":
+                selected_unlabelled_relative_indices = typiclus_sampling(
+                    model=typiclust, 
+                    unlabelled_loader_relative=unlabelled_loader_relative,
+                    budget=label_batch_size
                 )
             else:
                 raise ValueError("Unsupported strategy!")
@@ -339,7 +349,12 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
             # Re-initialize unlabelled dataset loader from updated relative subset
             unlabelled_loader_relative = DataLoader(unlabelled_dataset_relative, batch_size=64, shuffle=False, generator=generator)
         else:
+            print("Initial Training on Labelled Data")
             al_algorithm_time_iter = "None"
+
+            # Initialize typiclust object if typiclust AL algorithm is selected
+            if al_algorithm == "typiclust":
+                typiclust = Typiclust(typiclust_backbone, initial_labeled_size=initial_label_size)
 
 
         ### Train Model on Labelled Data and Evaluate on Test Data ###
