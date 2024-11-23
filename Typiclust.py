@@ -2,33 +2,31 @@ from Model import MultiModel
 import torch
 import torch.nn as nn
 from sklearn.cluster import KMeans
-from torch.utils.data import DataLoader, Subset
-import torchvision
-from torchvision.transforms import v2 as transforms
 from tqdm import tqdm  
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 
-
 class Typiclust:
-    def __init__(self, hyperparameters, labeled_dataloader, unlabeled_dataloader, n_clusters=10, k_neighbors=20, device='cuda'):
+    def __init__(self, backbone, initial_labeled_size, k_neighbors=20, device='cuda'):
         """
         Initialize Typiclust with the specified hyperparameters and number of clusters.
+        
+        Args:
+            backbone: Model backbone to use
+            initial_labeled_size: Size of initial labeled set |L0|
+            k_neighbors: Number of neighbors for typicality computation
+            device: Device to run computations on
         """
-        self.hyperparameters = hyperparameters
-        self.n_clusters = n_clusters
+        self.hyperparameters = {'number of classes': 10}
         self.device = device
         self.k_neighbors = k_neighbors
-        self.labeled_dataloader = labeled_dataloader
-        self.unlabeled_dataloader = unlabeled_dataloader
-        self.model = MultiModel(backbone=hyperparameters['backbone'], hyperparameters=hyperparameters, load_pretrained=True)
+        self.model = MultiModel(backbone=backbone, hyperparameters=self.hyperparameters, load_pretrained=True)
         self.model.to(self.device)
-        self.feature_extractor = nn.Sequential(*list(self.model.pretrained_model.children())[:-1])  # Remove final FC layer
+        self.feature_extractor = nn.Sequential(*list(self.model.pretrained_model.children())[:-1])
         
-        # Initialize labeled and unlabeled sets
-        self.labeled_set = []
-        self.unlabeled_set = []
-
+        # Track labeled set size and discovered clusters
+        self.labeled_size = initial_labeled_size
+        self.discovered_clusters = set()  # Keep track of clusters we've sampled from
 
     def extract_features(self, dataloader):
         """
@@ -49,20 +47,10 @@ class Typiclust:
     def compute_typicality(self, features):
         """
         Compute typicality for each feature vector based on K-nearest neighbors.
-        
-        Args:
-            features (torch.Tensor): Feature matrix
-        
-        Returns:
-            typicality (torch.Tensor): Typicality scores for each feature
         """
-        # Compute pairwise distances
         distances = torch.cdist(features, features)
+        _, indices = torch.topk(distances, k=self.k_neighbors + 1, largest=False)
         
-        # Find K-nearest neighbors for each point (excluding self)
-        _, indices = torch.topk(distances, k=self.k_neighbors + 1, largest=False) # If largest is False then the k smallest elements are returned.
-        
-        # Compute average distance to K-nearest neighbors
         typicality = []
         for i in range(len(features)):
             neighbor_distances = distances[i, indices[i, 1:]]  # Exclude self
@@ -71,35 +59,36 @@ class Typiclust:
         
         return torch.tensor(typicality)
 
-    def cluster_features(self, features):
+    def cluster_features(self, features, budget):
         """
         Apply KMeans clustering to the extracted features.
+        
+        Args:
+            features: Feature vectors
+            budget: Number of samples to select (B)
         """
-        kmeans = KMeans(n_clusters=self.n_clusters, random_state=42) #n_init=10
-
-        with tqdm(total=1, desc="KMeans Clustering", leave=False) as pbar:
+        # Number of clusters = |Li-1| + B
+        n_clusters = self.labeled_size + budget
+        
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42) # Set random state for reproducibility
+        
+        with tqdm(total=1, desc=f"KMeans Clustering (|L|={self.labeled_size}, B={budget})", leave=False) as pbar:
             cluster_labels = kmeans.fit_predict(features.cpu().numpy())
-            pbar.update(1)  # Update progress for clustering
+            pbar.update(1)
         return cluster_labels
 
-    # def fit(self, dataloader):
-    #     """
-    #     Perform feature extraction, normalization, PCA reduction, and clustering on the dataset.
-    #     """
-    #     print("Extracting features...")
-    #     features, labels = self.extract_features(dataloader)
-    #     print("Normalizing features...")
-    #     normalized_features = self.normalize_and_reduce(features)
-    #     print("Clustering features...")
-    #     cluster_labels, kmeans = self.cluster_features(normalized_features)
-    #     print("Clustering completed.")
-    #     return normalized_features, labels, cluster_labels, kmeans, None
-    def active_learning_iteration(self, budget):
+    def active_learning_iteration(self, budget, unlabeled_dataloader):
         """
         Perform one iteration of active learning using TypiClust strategy.
+        
+        Args:
+            budget: Number of samples to select (B)
+            
+        Returns:
+            list: Indices of selected samples
         """
         # Extract features from unlabeled data
-        features, labels = self.extract_features(self.unlabeled_dataloader)
+        features, _ = self.extract_features(unlabeled_dataloader)
         
         # Normalize features
         scaler = StandardScaler()
@@ -108,30 +97,28 @@ class Typiclust:
             device=self.device
         )
         
-        # Cluster the normalized features
+        # Cluster the normalized features into |Li-1| + B clusters
         cluster_labels = torch.tensor(
-            self.cluster_features(normalized_features), 
+            self.cluster_features(normalized_features, budget), 
             device=self.device
         )
 
         # Compute typicality
         typicality_scores = self.compute_typicality(normalized_features).to(self.device)
         
-        # Find largest uncovered clusters
-        covered_clusters = set()
-        if self.labeled_set:
-            labeled_labels = labels[self.labeled_set]
-            covered_clusters = set(labeled_labels)
+        # Get cluster sizes and sort by size
+        cluster_sizes = [(label, (cluster_labels == label).sum().item()) 
+                        for label in range(cluster_labels.max().item() + 1)]
+        cluster_sizes.sort(key=lambda x: x[1], reverse=True)
         
-        # Select samples from uncovered clusters
         selected_indices = []
-        for cluster in range(self.n_clusters):
-            if cluster in covered_clusters:
+        for cluster, _ in cluster_sizes:
+            # Skip if we've already sampled from this cluster
+            if cluster in self.discovered_clusters:
                 continue
-            
+                
             # Find samples in this cluster
             cluster_mask = (cluster_labels == cluster)
-            cluster_features = normalized_features[cluster_mask]
             cluster_typicality = typicality_scores[cluster_mask]
             
             # Select most typical sample from the cluster
@@ -139,86 +126,81 @@ class Typiclust:
             original_index = torch.where(cluster_mask)[0][top_sample_index]
             selected_indices.append(original_index.item())
             
+            # Mark cluster as discovered
+            self.discovered_clusters.add(cluster)
+            
             # Stop if budget is reached
             if len(selected_indices) >= budget:
                 break
         
+        # Update labeled set size for next iteration
+        self.labeled_size += len(selected_indices)
+        
         return selected_indices
 
 
-    # def find_top_n_typical_samples(self, features, cluster_labels, kmeans, n=1):
-    #     """
-    #     Find the top N most typical samples for each cluster.
-    #     """
-    #     # cluster_centers = torch.tensor(kmeans.cluster_centers_).to(self.device)
-    #     features = features.cpu().numpy()  # Convert to NumPy for distance calculations
-
-
-    #     distances = torch.cdist(
-    #             torch.tensor(cluster_features, device=self.device), 
-    #             torch.tensor(center, device=self.device).unsqueeze(0)
-    #         ).squeeze()
-
-        # typical_indices = {}
-        # for cluster_idx in range(kmeans.n_clusters):
-        #     # Get indices of samples in this cluster
-        #     cluster_samples = (cluster_labels == cluster_idx)
-        #     cluster_features = features[cluster_samples]
-            
-        #     # Compute distances to the cluster center
-        #     center = cluster_centers[cluster_idx].cpu().numpy()
-        #     distances = torch.cdist(
-        #         torch.tensor(cluster_features, device=self.device), 
-        #         torch.tensor(center, device=self.device).unsqueeze(0)
-        #     ).squeeze()
-            
-        #     # Get the indices of the N smallest distances
-        #     closest_indices = distances.argsort()[:n]
-        #     original_indices = np.where(cluster_samples)[0][closest_indices.cpu().numpy()]
-        #     typical_indices[cluster_idx] = original_indices.tolist()
+def plot_top_n_typical_samples(selected_indices, dataset, images_per_row=10):
+    """
+    Plot the selected typical samples with exactly 10 images per row.
+    
+    Args:
+        selected_indices (list): List of selected sample indices
+        dataset (torchvision.datasets): The dataset containing the images
+        images_per_row (int): Number of images to display per row (default=10)
+    """
+    # Calculate number of rows needed
+    num_samples = len(selected_indices)
+    num_rows = (num_samples + images_per_row - 1) // images_per_row
+    
+    # Create figure
+    fig, axes = plt.subplots(num_rows, images_per_row, 
+                            figsize=(images_per_row * 2, num_rows * 2))
+    
+    # Convert axes to 2D array if it's 1D (happens when num_rows=1)
+    if num_rows == 1:
+        axes = axes.reshape(1, -1)
+    
+    # Plot selected samples
+    for idx, sample_idx in enumerate(selected_indices):
+        # Calculate row and column position
+        row = idx // images_per_row
+        col = idx % images_per_row
         
-        # return typical_indices
-
-    def plot_top_n_typical_samples(self, selected_indices, dataset, n=3):
-        """
-        Plot the top N most typical samples.
-        Args:
-            selected_indices (list): List of selected sample indices
-            dataset (torchvision.datasets): The dataset containing the images
-            n (int): Number of samples to display per cluster/row
-        """
-        # Determine number of rows needed
-        num_rows = (len(selected_indices) + n - 1) // n
+        # Get and process image
+        image, label = dataset[sample_idx]
         
-        # Create figure with appropriate number of rows and columns
-        _, axes = plt.subplots(num_rows, n, figsize=(n * 3, num_rows * 3))
+        # Convert image back to 0-1 range if normalized
+        image = (image * 0.5 + 0.5).permute(1, 2, 0).numpy()  # Reorder channels to HWC
         
-        # Flatten axes for easier indexing if multiple rows
-        if num_rows > 1:
-            axes = axes.flatten()
-        
-        # Plot selected samples
-        for i, sample_idx in enumerate(selected_indices):
-            image, label = dataset[sample_idx]
-            
-            # Convert image back to 0-1 range if normalized
-            image = (image * 0.5 + 0.5).permute(1, 2, 0).numpy()  # Reorder channels to HWC
-            
-            # Select appropriate subplot
-            ax = axes[i] if num_rows > 1 or n > 1 else axes
-            ax.imshow(image)
-            ax.set_title(f"Sample {i+1}, Label: {label}")
-            ax.axis("off")
-        
-        # Hide any unused subplots
-        for i in range(len(selected_indices), len(axes)):
-            axes[i].axis('off')
-        
-        plt.tight_layout()
-        plt.savefig("top_typical_samples.png")
-        print("Saved the plot of typical samples")
+        # Plot image
+        axes[row, col].imshow(image)
+        axes[row, col].set_title(f"Sample {idx+1}\nLabel: {label}", fontsize=8)
+        axes[row, col].axis("off")
+    
+    # Hide axes for unused slots
+    for row in range(num_rows):
+        for col in range(images_per_row):
+            idx = row * images_per_row + col
+            if idx >= num_samples:
+                axes[row, col].axis('off')
+                axes[row, col].set_visible(False)
+    
+    # Adjust layout
+    plt.tight_layout()
+    
+    # Save figure
+    plt.savefig(f"top_{num_samples}_typical_samples.png", 
+                bbox_inches='tight', 
+                dpi=300)
+    print(f"Saved plot of {num_samples} typical samples with {images_per_row} images per row")
+    
+    # Close the figure to free memory
+    plt.close(fig)
 
 ######################################## TESTING ########################################
+# from torch.utils.data import DataLoader, Subset
+# import torchvision
+# from torchvision.transforms import v2 as transforms
 
 # # Empty memory before start
 # if torch.cuda.is_available():
@@ -236,8 +218,6 @@ class Typiclust:
 # }
 
 # print("Device:", hyperparameters['device'])
-# # Set the device to number 1
-# # torch.cuda.set_device(1)
 # print("Device number:", torch.cuda.current_device())
 # transform = transforms.Compose([
 #     transforms.ToImage(),
@@ -246,25 +226,15 @@ class Typiclust:
 
 # train_set = torchvision.datasets.CIFAR10(
 #     root='./data', train=True, download=False, transform=transform)
-# labeled_dataloader = DataLoader(train_set, batch_size=hyperparameters['batch_size'],
-#                           shuffle=True, num_workers=hyperparameters['num_workers'], drop_last=True)
 
 # unlabeled_dataloader = DataLoader(train_set, batch_size=hyperparameters['batch_size'], shuffle=True, num_workers=hyperparameters['num_workers'], drop_last=True)
 
-
 # # Initialize Typiclust
-# typiclust = Typiclust(hyperparameters=hyperparameters, labeled_dataloader=labeled_dataloader, unlabeled_dataloader=unlabeled_dataloader, n_clusters=hyperparameters['number of classes'], device=hyperparameters['device'])
+# typiclust = Typiclust(hyperparameters, unlabeled_dataloader, initial_labeled_size=100)
+# budget = 10
 
-# for i in range(3):
-#     selected_indices = typiclust.active_learning_iteration(10)
-
-#     # Update labeled and unlabeled sets
-#     typiclust.labeled_set.extend(selected_indices)
-#     typiclust.unlabeled_set = [
-#         idx for idx in typiclust.unlabeled_set 
-#         if idx not in selected_indices
-#     ]
-
+# for i in range(4):
+#     selected_indices = typiclust.active_learning_iteration(budget)
 #     print(f"Newly labeled samples: {selected_indices}, iteration {i+1}")
-
-#     typiclust.plot_top_n_typical_samples(selected_indices, train_set, n=10)
+#     plot_top_n_typical_samples(selected_indices, train_set)
+#     budget += 10
