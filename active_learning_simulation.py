@@ -208,9 +208,9 @@ for seed_idx, seed in enumerate(seeds):
     train_dataset, val_dataset = random_split(train_val_dataset, [train_size, val_size], generator=generator)
 
     # Data loaders
-    full_train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True, generator=generator) # Only used for training baseline with all labels
-    full_val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False, generator=generator) # Only used for validation baseline with all labels
-    full_test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False, generator=generator) # Both used for testing with all labels and for Train/AL iterations
+    full_train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True, drop_last=False, generator=generator) # Only used for training baseline with all labels
+    full_val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False, drop_last=False, generator=generator) # Only used for validation baseline with all labels
+    full_test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False, drop_last=False, generator=generator) # Both used for testing with all labels and for Train/AL iterations
 
     # Setup model
     model = torchvision.models.resnet18(weights=None)
@@ -224,13 +224,21 @@ for seed_idx, seed in enumerate(seeds):
 
         full_dataset_baseline_time = time.time()
 
-        test_accuracy = train_model_full_dataset_baseline(
+        reset_model_weights(model)
+
+        train_model(
             device=device, 
             model=model, 
-            epochs=EPOCHS,
-            full_train_loader=full_train_loader, 
-            full_val_loader=full_val_loader, 
-            full_test_loader=full_test_loader, print_iteration_epochs=print_iteration_epochs
+            epochs=EPOCHS, 
+            train_loader=full_train_loader, 
+            val_loader=full_val_loader, 
+            print_iteration_epochs=print_iteration_epochs
+        )
+
+        test_accuracy = evaluate_model(
+            device=device, 
+            model=model, 
+            data_loader=full_test_loader
         )
 
         full_dataset_baseline_time = time.time() - full_dataset_baseline_time

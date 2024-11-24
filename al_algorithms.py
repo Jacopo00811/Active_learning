@@ -5,20 +5,26 @@ import numpy as np
 # Uncertainty Sampling (Least Confidence)
 def uncertainty_sampling_least_confidence(device, model, unlabelled_loader_relative, label_batch_size):
     model.eval()
-    uncertainties = []
-    samples_indices = []
+
     with torch.no_grad():
+        # Pre-allocate a single tensor for all data
+        all_uncertainties = []
+        all_indices = []
+        
         for idx, (images, _) in enumerate(unlabelled_loader_relative):
             images = images.to(device)
             outputs = model(images)
             softmax_outputs = torch.nn.functional.softmax(outputs, dim=1)
-            max_confidences, _ = torch.max(softmax_outputs, dim=1)
-            uncertainties.extend(1 - max_confidences.cpu().numpy())
-            samples_indices.extend([idx] * images.size(0))
+            all_uncertainties.append(1 - torch.max(softmax_outputs, dim=1)[0])
+            all_indices.append(torch.full((images.size(0),), idx, device=device))
 
-    uncertain_indices = np.argsort(uncertainties)[-label_batch_size:]
-    selected_indices = [samples_indices[i] for i in uncertain_indices]
-    return selected_indices
+        # Single concatenation at the end
+        uncertainties = torch.cat(all_uncertainties)
+        indices = torch.cat(all_indices)
+        
+        # Get top-k directly instead of full sort
+        _, uncertain_indices = torch.topk(uncertainties, k=label_batch_size)
+        return indices[uncertain_indices].tolist()
 
 # Random Sampling Strategy
 def random_sampling(unlabelled_loader_relative, label_batch_size):

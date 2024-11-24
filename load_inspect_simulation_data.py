@@ -3,32 +3,8 @@ import os
 import matplotlib.pyplot as plt
 from util_functions import format_time, plot_al_performance_across_seeds
 
-"""
-Personal:
-- Change ALL data loaders to use remainders as well
-- GPU accelerate uncertainty algorithm, check that it makes a difference
-- Add tests to check if model weights are reset between iterations
-- Add tests in active_learning_loop to ensure no data leakage between labelled training and validaiton subsets and unlabelled subset
-- Change AL selection to same format as budget strategy selection, also easy to add abbreviation into it.
-- Move initial/batch ratio inside of budget strategy selection, allows us to set custom initial labelled sizes
-- Consider changing CIFAR-10 tranformations to be more similar to other references, normalization can match actual pixel value distribution. Try running and check if results improve
 
-Maybe consider:
-* Making smarter budget strategies, so that they have no overlap? What I mean is that two budget strategies cannot operate in the same budget space. Discuss pros and cons with group.
-* Adding ability to select different models, and different datasets. Dataset names need to account for this, and both the selected model and dataset names need to be saved in the config file. Allows comparison of AL-algorithms on different models and datasets. Could be especially useful for determing what types of data the AL-algorithms work best on. Only implement this if HPC can handle many different models and datasets, otherwise if we only try a few different datasets create separate scripts for each.
-"""
-
-
-def reconstruct_rel_file_path_from_config(
-    relative_save_folder,
-    TRAIN_VAL_RATIO,
-    EPOCHS,
-    seeds,
-    train_full_dataset_baseline,
-    label_batch_sizes,
-    RATIO_BATCH_TO_INIT_DATASET,
-    selected_abbreviations,
-    NUM_TRAIN_AL_ITERATIONS
+def reconstruct_rel_file_path_from_config(relative_save_folder, TRAIN_VAL_RATIO, EPOCHS, seeds, train_full_dataset_baseline, label_batch_sizes, RATIO_BATCH_TO_INIT_DATASET, selected_abbreviations, NUM_TRAIN_AL_ITERATIONS
 ):
     # Reconstruct the filename
     file_name = (

@@ -102,16 +102,16 @@ def evaluate_model(device, model, data_loader):
             correct += (predicted == labels).sum().item()
     return (100 * correct / total)
 
-def train_model(device, model, train_loader, val_loader, epochs, print_iteration_epochs=False):
+def train_model(device, model, epochs, train_loader, val_loader, print_iteration_epochs=False):
     """
     Train model on the training set and evaluate on the validation set for a specified number of epochs.
 
     Args:
         device (torch.device): Device to use for training and evaluation
         model (torch.nn.Module): Model to train and evaluate
+        epochs (int): Number of epochs to train the model
         train_loader (torch.utils.data.DataLoader): DataLoader for the training set
         val_loader (torch.utils.data.DataLoader): DataLoader for the validation set
-        epochs (int): Number of epochs to train the model
         print_iteration_epochs (bool): Whether to print epoch information during training
     """
 
@@ -129,33 +129,15 @@ def train_model(device, model, train_loader, val_loader, epochs, print_iteration
             loss.backward()
             optimizer.step()
 
-        val_accuracy = evaluate_model(device, model, val_loader)
+        val_accuracy = evaluate_model(
+            device=device, 
+            model=model, 
+            data_loader=val_loader
+        )
+        
         if print_iteration_epochs:
             print(f"    Epoch {epoch+1}/{epochs}, Validation: {val_accuracy:.2f}% acc")
 
-
-
-def train_model_full_dataset_baseline(device, model, epochs, full_train_loader, full_val_loader, full_test_loader, print_iteration_epochs=False):
-    """
-    Train model on the full training set to set a baseline for the maximum achievable performance.
-    Uses same model architecture and hyperparameters as in active learning loop, only difference is that it trains on the full training set.
-    
-    Args:
-        device (torch.device): Device to use for training and evaluation
-        model (torch.nn.Module): Model to train and evaluate
-        epochs (int): Number of epochs to train the model
-        full_train_loader (torch.utils.data.DataLoader): DataLoader for the full training set
-        full_val_loader (torch.utils.data.DataLoader): DataLoader for the full validation set
-        full_test_loader (torch.utils.data.DataLoader): DataLoader for the full test set
-        print_iteration_epochs (bool): Whether to print epoch information during training
-    """
-
-    reset_model_weights(model)
-    train_model(device, model, full_train_loader, full_val_loader, epochs=epochs, print_iteration_epochs=print_iteration_epochs)
-    test_accuracy = evaluate_model(device, model, full_test_loader)
-    return test_accuracy
-
-# Active Learning Loop with Query Strategy Selection and Model Reset
 def active_learning_loop(device, model, epochs, train_val_dataset, train_val_ratio, full_test_loader, generator, num_train_al_iterations, initial_label_size, label_batch_size, al_algorithm, print_al_iterations=False, print_iteration_epochs=False):
     """
     Active Learning Loop with AL-query --> Reset Model & Train iterations.
@@ -247,10 +229,10 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
     )
 
     # Initialize labelled train and validation dataset loaders from relative subsets
-    labelled_train_loader_relative = DataLoader(labelled_train_dataset_relative, batch_size=64, shuffle=True, generator=generator)
-    labelled_val_loader_relative = DataLoader(labelled_val_dataset_relative, batch_size=64, shuffle=False, generator=generator)
+    labelled_train_loader_relative = DataLoader(labelled_train_dataset_relative, batch_size=64, shuffle=True, drop_last=False, generator=generator)
+    labelled_val_loader_relative = DataLoader(labelled_val_dataset_relative, batch_size=64, shuffle=False, drop_last=False, generator=generator)
     # Initialize unlabelled dataset loader from relative subset
-    unlabelled_loader_relative = DataLoader(unlabelled_dataset_relative, batch_size=64, shuffle=False, generator=generator)
+    unlabelled_loader_relative = DataLoader(unlabelled_dataset_relative, batch_size=64, shuffle=False, drop_last=False, generator=generator)
 
     # Define a map from unlabelled relative indices to unlabelled global indices
     # Used to move unlabelled AL-selected relative indices to equivalent global indices
@@ -343,10 +325,10 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
             )
 
             # Re-initialize labelled train and validation dataset loaders from updated relative subsets
-            labelled_train_loader_relative = DataLoader(labelled_train_dataset_relative, batch_size=64, shuffle=True, generator=generator)
-            labelled_val_loader_relative = DataLoader(labelled_val_dataset_relative, batch_size=64, shuffle=False, generator=generator)
+            labelled_train_loader_relative = DataLoader(labelled_train_dataset_relative, batch_size=64, shuffle=True, drop_last=False, generator=generator)
+            labelled_val_loader_relative = DataLoader(labelled_val_dataset_relative, batch_size=64, shuffle=False, drop_last=False, generator=generator)
             # Re-initialize unlabelled dataset loader from updated relative subset
-            unlabelled_loader_relative = DataLoader(unlabelled_dataset_relative, batch_size=64, shuffle=False, generator=generator)
+            unlabelled_loader_relative = DataLoader(unlabelled_dataset_relative, batch_size=64, shuffle=False, drop_last=False, generator=generator)
         else:
             print("Initial Training on Labelled Data")
             al_algorithm_time_iter = "None"
@@ -366,9 +348,9 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
         train_model(
             device=device, 
             model=model, 
+            epochs=epochs,
             train_loader=labelled_train_loader_relative, 
             val_loader=labelled_val_loader_relative, 
-            epochs=epochs, 
             print_iteration_epochs=print_iteration_epochs
         )
         
