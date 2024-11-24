@@ -7,7 +7,7 @@ from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 
 class Typiclust:
-    def __init__(self, backbone, initial_labeled_size, k_neighbors=20, device='cuda'):
+    def __init__(self, backbone, initial_labeled_size, device, k_neighbors=20):
         """
         Initialize Typiclust with the specified hyperparameters and number of clusters.
         

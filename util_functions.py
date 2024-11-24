@@ -354,7 +354,7 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
 
             # Initialize typiclust object if typiclust AL algorithm is selected
             if al_algorithm == "typiclust":
-                typiclust = Typiclust(typiclust_backbone, initial_labeled_size=initial_label_size)
+                typiclust = Typiclust(typiclust_backbone, initial_labeled_size=initial_label_size, device=device)
 
 
         ### Train Model on Labelled Data and Evaluate on Test Data ###
