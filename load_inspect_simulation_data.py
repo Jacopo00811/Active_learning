@@ -4,6 +4,15 @@ import matplotlib.pyplot as plt
 from util_functions import format_time, plot_al_performance_across_seeds
 
 """
+Personal:
+- Change ALL data loaders to use remainders as well
+- GPU accelerate uncertainty algorithm, check that it makes a difference
+- Add tests to check if model weights are reset between iterations
+- Add tests in active_learning_loop to ensure no data leakage between labelled training and validaiton subsets and unlabelled subset
+- Change AL selection to same format as budget strategy selection, also easy to add abbreviation into it.
+- Move initial/batch ratio inside of budget strategy selection, allows us to set custom initial labelled sizes
+- Consider changing CIFAR-10 tranformations to be more similar to other references, normalization can match actual pixel value distribution. Try running and check if results improve
+
 Maybe consider:
 * Making smarter budget strategies, so that they have no overlap? What I mean is that two budget strategies cannot operate in the same budget space. Discuss pros and cons with group.
 * Adding ability to select different models, and different datasets. Dataset names need to account for this, and both the selected model and dataset names need to be saved in the config file. Allows comparison of AL-algorithms on different models and datasets. Could be especially useful for determing what types of data the AL-algorithms work best on. Only implement this if HPC can handle many different models and datasets, otherwise if we only try a few different datasets create separate scripts for each.

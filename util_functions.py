@@ -220,7 +220,6 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
             3. Reset model weights, train the model on the labelled training set for epochs=epochs and evaluate on the validation set.
             4. After training is finished, evaluate the model on the test set and store the test accuracy + size of the labelled training and validation sets.
             5. Print iteration information if print_al_iterations is True.
-            15. Repeat the loop for num_train_al_iterations train/AL iterations.
     """
 
     # Initialize labelled and unlabelled datasets
