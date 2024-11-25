@@ -102,7 +102,7 @@ def evaluate_model(device, model, data_loader):
             correct += (predicted == labels).sum().item()
     return (100 * correct / total)
 
-def train_model(device, model, epochs, train_loader, val_loader, print_iteration_epochs=False):
+def train_model(device, model, epochs, train_loader, val_loader, print_iteration_epochs=False, hyperparameters={}):
     """
     Train model on the training set and evaluate on the validation set for a specified number of epochs.
 
@@ -118,7 +118,7 @@ def train_model(device, model, epochs, train_loader, val_loader, print_iteration
     model.train()
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=hyperparameters['weight_decay'])
 
     for epoch in range(epochs):
         for images, labels in train_loader:
