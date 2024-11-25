@@ -280,6 +280,35 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
                     unlabelled_loader_relative=unlabelled_loader_relative,
                     budget=label_batch_size
                 )
+            elif al_algorithm == "margin":
+                selected_unlabelled_relative_indices = uncertainty_sampling_margin(
+                    device=device, 
+                    model=model, 
+                    unlabelled_loader=unlabelled_loader_relative, 
+                    label_batch_size=label_batch_size
+                )
+            elif al_algorithm == "entropy":
+                selected_unlabelled_relative_indices = uncertainty_sampling_entropy(
+                    device=device, 
+                    model=model, 
+                    unlabelled_loader=unlabelled_loader_relative, 
+                    label_batch_size=label_batch_size
+                )
+            elif al_algorithm == "badge":
+                selected_unlabelled_relative_indices = hybrid_sampling_badge(
+                    device=device, 
+                    model=model, 
+                    unlabelled_loader=unlabelled_loader_relative, 
+                    label_batch_size=label_batch_size
+                )
+            elif al_algorithm == "coreset":
+                selected_unlabelled_relative_indices = Density_based_sampling_core_set(
+                    device=device, 
+                    model=model, 
+                    unlabelled_loader=unlabelled_loader_relative, 
+                    label_batch_size=label_batch_size,
+                    labeled_loader=labelled_train_loader_relative
+                )
             else:
                 raise ValueError("Unsupported strategy!")
 

@@ -16,7 +16,7 @@ from util_functions import *
 
 ## Simulation Parameters ##
 seeds = [0, 1] # Set random seeds to decrease uncertainty
-train_full_dataset_baseline = True # Enable to run the model with all labelled data to establish maximum performance baseline
+train_full_dataset_baseline = False # Enable to run the model with all labelled data to establish maximum performance baseline
 relative_val = True # Enable to use relative validation set size, otherwise use full validation set
 save_results = True # Enable to save results to file
 relative_save_folder = "./run_results" # Define relative save folder
@@ -29,20 +29,23 @@ EPOCHS = 3 # Number of epochs to train the model for each budget size
 
 ## Active Learning Algorithm Parameters ##
 NUM_TRAIN_AL_ITERATIONS = 10 # Number of Train/AL iterations to run for each algorithm for budget strategy
-al_algorithms = ['random', 'uncertainty', 'typiclust'] # Active Learning algorithms to run
+al_algorithms = ['random', 'uncertainty', 'margin','entropy'] # Active Learning algorithms to run
+al_algorithms = ['coreset']
 algorithm_abbreviations = { # Abbreviations for each algorithm, used for file naming
     'random': 'ran',
     'uncertainty': 'unc',
     'typiclust': 'typ',
-    'margin': 'mar',      # Example additional algorithm, not implemented yet
-    'entropy': 'ent'      # Example additional algorithm, not implemented yet
+    'margin': 'mar',      
+    'entropy': 'ent',
+    'badge': 'bad',
+    'coreset': 'cor'   
 }
 
 ## Budget Strategy Parameters ##
 RATIO_BATCH_TO_INIT_DATASET = 3 # Ratio of initial labelled dataset size to label batch size (labels added per iteration)
 BUDGET_STRATEGIES = {
    1: {"active": True, "batch_size": 200},
-   2: {"active": True, "batch_size": 400}, 
+   2: {"active": False, "batch_size": 400}, 
    3: {"active": False, "batch_size": 800},
    4: {"active": False, "batch_size": 1600}
 }
