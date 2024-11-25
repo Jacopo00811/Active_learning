@@ -29,7 +29,7 @@ EPOCHS = 3 # Number of epochs to train the model for each budget size
 
 ## Active Learning Algorithm Parameters ##
 NUM_TRAIN_AL_ITERATIONS = 10 # Number of Train/AL iterations to run for each algorithm for budget strategy
-al_algorithms = ['random', 'uncertainty', 'typiclust'] # Active Learning algorithms to run
+al_algorithms = ['random', 'typiclust'] # Active Learning algorithms to run
 algorithm_abbreviations = { # Abbreviations for each algorithm, used for file naming
     'random': 'ran',
     'uncertainty': 'unc',

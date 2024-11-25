@@ -249,7 +249,6 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
 
     # Initialize Typiclust object if typiclust AL algorithm is selected
     typiclust = None
-    typiclust_backbone = 'resnet152'
 
     # Loop through active learning iterations
     for i in range(num_train_al_iterations+1):
@@ -275,8 +274,9 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
                     label_batch_size=label_batch_size
                 )
             elif al_algorithm == "typiclust":
-                selected_unlabelled_relative_indices = typiclus_sampling(
-                    model=typiclust, 
+                selected_unlabelled_relative_indices = typiclust_sampling(
+                    model=model, 
+                    typiclust_obj=typiclust,
                     unlabelled_loader_relative=unlabelled_loader_relative,
                     budget=label_batch_size
                 )
@@ -335,7 +335,7 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
 
             # Initialize typiclust object if typiclust AL algorithm is selected
             if al_algorithm == "typiclust":
-                typiclust = Typiclust(typiclust_backbone, initial_labeled_size=initial_label_size, device=device)
+                typiclust = Typiclust(initial_labeled_size=initial_label_size, device=device, n_components=50)
 
 
         ### Train Model on Labelled Data and Evaluate on Test Data ###
