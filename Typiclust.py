@@ -197,6 +197,8 @@ def plot_top_n_typical_samples(selected_indices, dataset, images_per_row=10):
     # Close the figure to free memory
     plt.close(fig)
 
+
+
 ######################################## TESTING ########################################
 # from torch.utils.data import DataLoader, Subset
 # import torchvision
@@ -238,3 +240,60 @@ def plot_top_n_typical_samples(selected_indices, dataset, images_per_row=10):
 #     print(f"Newly labeled samples: {selected_indices}, iteration {i+1}")
 #     plot_top_n_typical_samples(selected_indices, train_set)
 #     budget += 10
+
+
+# from Typiclust import Typiclust
+# import torch
+
+# class BayesianTypiclust(Typiclust):
+#     def __init__(self, hyperparameters, labeled_dataloader, unlabeled_dataloader, n_clusters=10, 
+#                  k_neighbors=20, device='cuda', acquisition_type='bald'):
+#         super().__init__(hyperparameters, labeled_dataloader, unlabeled_dataloader, 
+#                         n_clusters, k_neighbors, device)
+#         self.acquisition_type = acquisition_type
+        
+#     def estimate_uncertainty(self, features, n_samples=10):
+#         """Monte Carlo dropout for uncertainty estimation"""
+#         self.model.train()  # Enable dropout
+#         predictions = []
+#         for _ in range(n_samples):
+#             with torch.no_grad():
+#                 pred = self.model(features)
+#                 predictions.append(torch.softmax(pred, dim=1))
+#         predictions = torch.stack(predictions)
+#         mean = predictions.mean(0)
+#         uncertainty = -(mean * torch.log(mean + 1e-10)).sum(1)  # Entropy
+#         return uncertainty
+    
+#     def bald_acquisition(self, features, n_samples=10):
+#         """Bayesian Active Learning by Disagreement"""
+#         self.model.train()
+#         outputs = torch.stack([torch.softmax(self.model(features), dim=1) 
+#                              for _ in range(n_samples)])
+#         mean = outputs.mean(0)
+#         entropy1 = -(mean * torch.log(mean + 1e-10)).sum(1)
+#         entropy2 = -(outputs * torch.log(outputs + 1e-10)).sum(2).mean(0)
+#         return entropy1 - entropy2
+    
+#     def active_learning_iteration(self, budget):
+#         features, labels = self.extract_features(self.unlabeled_dataloader)
+#         normalized_features = self.normalize_and_reduce(features)
+        
+#         # Combine Bayesian uncertainty with typicality
+#         uncertainty = self.bald_acquisition(normalized_features) if self.acquisition_type == 'bald' \
+#                      else self.estimate_uncertainty(normalized_features)
+#         typicality = self.compute_typicality(normalized_features)
+        
+#         # Weighted combination
+#         scores = 0.5 * uncertainty + 0.5 * typicality
+        
+#         # Select samples with highest scores
+#         selected_indices = torch.topk(scores, budget).indices
+        
+#         return selected_indices, normalized_features
+    
+# bayesian_typiclust = BayesianTypiclust(hyperparameters, 
+#                                     labeled_dataloader,
+#                                     unlabeled_dataloader,
+#                                     acquisition_type='bald')
+# selected_indices, features = bayesian_typiclust.active_learning_iteration(budget=10)
