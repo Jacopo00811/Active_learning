@@ -102,7 +102,7 @@ def evaluate_model(device, model, data_loader):
             correct += (predicted == labels).sum().item()
     return (100 * correct / total)
 
-def train_model(device, model, epochs, train_loader, val_loader, print_iteration_epochs=False):
+def train_model(device, model, epochs, train_loader, val_loader):
     """
     Train model on the training set and evaluate on the validation set for a specified number of epochs.
 
@@ -112,7 +112,6 @@ def train_model(device, model, epochs, train_loader, val_loader, print_iteration
         epochs (int): Number of epochs to train the model
         train_loader (torch.utils.data.DataLoader): DataLoader for the training set
         val_loader (torch.utils.data.DataLoader): DataLoader for the validation set
-        print_iteration_epochs (bool): Whether to print epoch information during training
     """
 
     model.train()
@@ -135,10 +134,22 @@ def train_model(device, model, epochs, train_loader, val_loader, print_iteration
             data_loader=val_loader
         )
         
-        if print_iteration_epochs:
-            print(f"    Epoch {epoch+1}/{epochs}, Validation: {val_accuracy:.2f}% acc")
+        print(f"    Epoch {epoch+1}/{epochs}, Validation: {val_accuracy:.2f}% acc", end='\r') # Print epoch information, overwrite the line for each epoch
+    print(end='\x1b[2K\r')  # Clear the line after training is finished
 
-def active_learning_loop(device, model, epochs, train_val_dataset, train_val_ratio, full_test_loader, generator, num_train_al_iterations, initial_label_size, label_batch_size, al_algorithm, print_al_iterations=False, print_iteration_epochs=False):
+def active_learning_loop(device, 
+                model,
+                epochs,
+                batch_size,
+                train_val_ratio,  
+                train_val_dataset, 
+                full_test_loader, 
+                generator,
+                budget_initial_size,
+                budget_query_size,
+                budget_al_iterations,
+                al_algorithm
+            ):
     """
     Active Learning Loop with AL-query --> Reset Model & Train iterations.
     First iteration is done without AL step to train on initial labelled training and validation subsets.
@@ -149,16 +160,15 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
         device (torch.device): Device to use for training and evaluation
         model (torch.nn.Module): Model to train and evaluate
         epochs (int): Number of epochs to train the model in each train/AL iteration
-        train_val_dataset (torch.utils.data.Dataset): Full train/val dataset
+        batch_size (int): Batch size for data loaders
         train_val_ratio (float): Ratio of labelled training set size to labelled validation set size
+        train_val_dataset (torch.utils.data.Dataset): Full train/val dataset
         full_test_loader (torch.utils.data.DataLoader): DataLoader for the full test dataset
         generator (torch.Generator): Generator for random number generation
-        num_train_al_iterations (int): Number of train/AL iterations to run
-        initial_label_size (int): Initial number of labelled samples split into training and validation subsets
-        label_batch_size (int): Number of samples to label in each AL iteration to split between and add to training and validation subsets
+        budget_initial_size (int): Initial number of labelled samples to start with
+        budget_query_size (int): Number of samples to query in each AL iteration
+        budget_al_iterations (int): Number of AL iterations to run
         al_algorithm (str): Active Learning strategy to use ("uncertainty" or "random"), more will be added in the future
-        print_al_iterations (bool): Whether to print iteration information
-        print_iteration_epochs (bool): Whether to print epoch information during training
 
     Returns:
         tuple: Tuple containing:
@@ -201,17 +211,17 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
                 2.13 After training is finished, evaluate the model on the test set and store the test accuracy.
             3. Reset model weights, train the model on the labelled training set for epochs=epochs and evaluate on the validation set.
             4. After training is finished, evaluate the model on the test set and store the test accuracy + size of the labelled training and validation sets.
-            5. Print iteration information if print_al_iterations is True.
     """
 
     # Initialize labelled and unlabelled datasets
-    labelled_indices_global = np.random.choice(len(train_val_dataset), initial_label_size, replace=False)
+    labelled_indices_global = np.random.choice(len(train_val_dataset), budget_initial_size, replace=False)
     unlabelled_indices_global = list(set(range(len(train_val_dataset))) - set(labelled_indices_global))
 
     # Split the labelled dataset into train and validation
     train_size = int(len(labelled_indices_global) * train_val_ratio)
     val_size = len(labelled_indices_global) - train_size
     labelled_train_indices_global, labelled_val_indices_global = random_split(labelled_indices_global, [train_size, val_size], generator=generator)
+
 
     # Create labelled training and validation subsets with relative indices from the full train/val dataset using global indices
     labelled_train_dataset_relative = Subset(
@@ -227,12 +237,19 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
         train_val_dataset, 
         unlabelled_indices_global
     )
+    # (Might be needed for some AL-algorithms) Create labelled subset (both train and val together) with relative indices from the full train/val dataset using global indices
+    labelled_dataset_relative = Subset(
+        train_val_dataset, 
+        labelled_indices_global
+    )
 
     # Initialize labelled train and validation dataset loaders from relative subsets
-    labelled_train_loader_relative = DataLoader(labelled_train_dataset_relative, batch_size=64, shuffle=True, drop_last=False, generator=generator)
-    labelled_val_loader_relative = DataLoader(labelled_val_dataset_relative, batch_size=64, shuffle=False, drop_last=False, generator=generator)
+    labelled_train_loader_relative = DataLoader(labelled_train_dataset_relative, batch_size=batch_size, shuffle=True, drop_last=False, generator=generator)
+    labelled_val_loader_relative = DataLoader(labelled_val_dataset_relative, batch_size=batch_size, shuffle=False, drop_last=False, generator=generator)
     # Initialize unlabelled dataset loader from relative subset
-    unlabelled_loader_relative = DataLoader(unlabelled_dataset_relative, batch_size=64, shuffle=False, drop_last=False, generator=generator)
+    unlabelled_loader_relative = DataLoader(unlabelled_dataset_relative, batch_size=batch_size, shuffle=False, drop_last=False, generator=generator)
+    # (Might be needed for some AL-algorithms) Initialize labelled dataset (both train and val together) loader from relative subset
+    labelled_loader_relative = DataLoader(labelled_dataset_relative, batch_size=batch_size, shuffle=False, drop_last=False, generator=generator)
 
     # Define a map from unlabelled relative indices to unlabelled global indices
     # Used to move unlabelled AL-selected relative indices to equivalent global indices
@@ -252,7 +269,7 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
     typiclust_backbone = 'resnet152'
 
     # Loop through active learning iterations
-    for i in range(num_train_al_iterations+1):
+    for i in range(budget_al_iterations+1):
         iter_time = time.time()
         
 
@@ -267,18 +284,18 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
                     device=device, 
                     model=model, 
                     unlabelled_loader_relative=unlabelled_loader_relative, 
-                    label_batch_size=label_batch_size
+                    budget_query_size=budget_query_size
                 )
             elif al_algorithm == "random":
                 selected_unlabelled_relative_indices = random_sampling(
                     unlabelled_loader_relative=unlabelled_loader_relative, 
-                    label_batch_size=label_batch_size
+                    budget_query_size=budget_query_size
                 )
             elif al_algorithm == "typiclust":
                 selected_unlabelled_relative_indices = typiclus_sampling(
                     model=typiclust, 
                     unlabelled_loader_relative=unlabelled_loader_relative,
-                    budget=label_batch_size
+                    budget_query_size=budget_query_size
                 )
             else:
                 raise ValueError("Unsupported strategy!")
@@ -308,6 +325,8 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
             # Update the labelled training and validation global indices with the selected global indices
             labelled_train_indices_global = np.concatenate([labelled_train_indices_global, selected_labelled_train_indices_global])
             labelled_val_indices_global = np.concatenate([labelled_val_indices_global, selected_labelled_val_indices_global])
+            # (Might be needed for some AL-algorithms) Update the labelled global indices with the selected global indices
+            labelled_indices_global = np.concatenate([labelled_train_indices_global, labelled_val_indices_global])
 
             # Create labelled training and validation subsets with relative indices from the full train/val dataset using updated (added) global indices
             labelled_train_dataset_relative = Subset(
@@ -323,19 +342,27 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
                 train_val_dataset, 
                 unlabelled_indices_global
             )
+            # (Might be needed for some AL-algorithms) Create labelled subset (both train and val together) with relative indices from the full train/val dataset using global indices
+            labelled_dataset_relative = Subset(
+                train_val_dataset, 
+                labelled_indices_global
+            )
+            
 
             # Re-initialize labelled train and validation dataset loaders from updated relative subsets
-            labelled_train_loader_relative = DataLoader(labelled_train_dataset_relative, batch_size=64, shuffle=True, drop_last=False, generator=generator)
-            labelled_val_loader_relative = DataLoader(labelled_val_dataset_relative, batch_size=64, shuffle=False, drop_last=False, generator=generator)
+            labelled_train_loader_relative = DataLoader(labelled_train_dataset_relative, batch_size=batch_size, shuffle=True, drop_last=False, generator=generator)
+            labelled_val_loader_relative = DataLoader(labelled_val_dataset_relative, batch_size=batch_size, shuffle=False, drop_last=False, generator=generator)
             # Re-initialize unlabelled dataset loader from updated relative subset
-            unlabelled_loader_relative = DataLoader(unlabelled_dataset_relative, batch_size=64, shuffle=False, drop_last=False, generator=generator)
+            unlabelled_loader_relative = DataLoader(unlabelled_dataset_relative, batch_size=batch_size, shuffle=False, drop_last=False, generator=generator)
+            # (Might be needed for some AL-algorithms) Re-nitialize labelled dataset (both train and val together) loader from relative subset
+            labelled_loader_relative = DataLoader(labelled_dataset_relative, batch_size=batch_size, shuffle=False, drop_last=False, generator=generator)
+
         else:
-            print("Initial Training on Labelled Data")
             al_algorithm_time_iter = "None"
 
             # Initialize typiclust object if typiclust AL algorithm is selected
             if al_algorithm == "typiclust":
-                typiclust = Typiclust(typiclust_backbone, initial_labeled_size=initial_label_size, device=device)
+                typiclust = Typiclust(typiclust_backbone, initial_labeled_size=budget_initial_size, device=device)
 
 
         ### Train Model on Labelled Data and Evaluate on Test Data ###
@@ -350,8 +377,7 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
             model=model, 
             epochs=epochs,
             train_loader=labelled_train_loader_relative, 
-            val_loader=labelled_val_loader_relative, 
-            print_iteration_epochs=print_iteration_epochs
+            val_loader=labelled_val_loader_relative
         )
         
         training_time_iter = time.time() - training_time_iter
@@ -371,8 +397,8 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
 
         ### Print Iteration Information ###
         iter_time = time.time() - iter_time
-        if print_al_iterations:
-            print(f"  Iteration {i}/10 - Samples: {train_val_set_sizes[i]} ({(1 - train_val_ratio)*100:.0f}% val), Test: {test_accuracy:.2f}% acc, Time: {format_time(iter_time)}, Training: {format_time(training_time_iter)}, AL: {format_time(al_algorithm_time_iter) if al_algorithm_time_iter != 'None' else 'N/A'}")
+        
+        print(f"  Iteration {i}/10 - Samples: {train_val_set_sizes[i]} ({(1 - train_val_ratio)*100:.0f}% val), Test: {test_accuracy:.2f}% acc, Time: {format_time(iter_time)}, Training: {format_time(training_time_iter)}, AL: {format_time(al_algorithm_time_iter) if al_algorithm_time_iter != 'None' else 'N/A'}")
 
     return train_val_set_sizes, test_accuracies, training_time_total, al_algorithm_time_total
 
