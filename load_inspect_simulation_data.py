@@ -4,17 +4,20 @@ import matplotlib.pyplot as plt
 from util_functions import format_time, plot_al_performance_across_seeds
 
 
-def reconstruct_rel_file_path_from_config(relative_save_folder, TRAIN_VAL_RATIO, EPOCHS, seeds, train_full_dataset_baseline, label_batch_sizes, RATIO_BATCH_TO_INIT_DATASET, selected_abbreviations, NUM_TRAIN_AL_ITERATIONS
-):
-    # Reconstruct the filename
+def reconstruct_rel_file_path_from_config(relative_save_folder, dataset_name, model_name, pretrained_weights, train_val_ratio, epochs, batch_size, seeds, train_full_dataset_baseline, al_algorithms, budget_strategies, budget_initial_sizes, budget_query_sizes, budget_total_al_iterations):
     file_name = (
-        f"model_{int(TRAIN_VAL_RATIO*100)}_{EPOCHS}_"
-        f"seeds_{'-'.join(map(str, seeds))}_"
-        f"baseline_{train_full_dataset_baseline}_"
-        f"batch_{'-'.join(map(str, label_batch_sizes))}_"
-        f"ratio_{RATIO_BATCH_TO_INIT_DATASET}_"
-        f"algo_{'-'.join(selected_abbreviations)}_"
-        f"iter_{NUM_TRAIN_AL_ITERATIONS}"
+        f"{dataset_name.lower()}_"
+        f"{model_name.lower()}_ptw{1 if pretrained_weights else 0}_"
+        f"tvr{int(train_val_ratio*100)}_"
+        f"ep{epochs}_"
+        f"bs{batch_size}_"
+        f"sds{'-'.join(map(str, seeds))}_"
+        f"bl{1 if train_full_dataset_baseline else 0}_"
+        f"algo-{'-'.join([algo[:3] for algo in al_algorithms])}_"
+        f"bsr{'-'.join(map(str, budget_strategies))}_"
+        f"bis{'-'.join(map(str, budget_initial_sizes))}_"
+        f"bqs{'-'.join(map(str, budget_query_sizes))}_"
+        f"bni{'-'.join(map(str, budget_total_al_iterations))}"
     )
     print(f"Reconstructed relative file path:\n{file_name}")
 
@@ -38,45 +41,51 @@ def load_simulation_data(file_path):
 
 
 ### DEFINE CONFIGURATION VARIABLES FOR FILE PATH RECONSTRUCTION ###
+dataset_name = "CIFAR-10"
+model_name = "ResNet-18"
+pretrained_weights = True
 relative_save_folder = "./run_results"
 TRAIN_VAL_RATIO = 0.8
-EPOCHS = 3
+EPOCHS = 10
+BATCH_SIZE = 64
 seeds = [0, 1]
 train_full_dataset_baseline = True
-
-RATIO_BATCH_TO_INIT_DATASET = 3 # Ratio of initial labelled dataset size to label batch size (labels added per iteration)
+AL_ALGORITHMS = {
+    'random': {"active": True},
+    'uncertainty': {"active": True},
+    'typiclust': {"active": False}
+}
 BUDGET_STRATEGIES = {
-   1: {"active": True, "batch_size": 200},
-   2: {"active": True, "batch_size": 400}, 
-   3: {"active": False, "batch_size": 800},
-   4: {"active": False, "batch_size": 1600}
+    1: {"active": True, "initial_size": 1000, "query_size": 250, "num_al_iterations": 10},
+    2: {"active": True, "initial_size": 4000, "query_size": 500, "num_al_iterations": 10},
+    3: {"active": False, "initial_size": 10000, "query_size": 1000, "num_al_iterations": 10},
+    4: {"active": False, "initial_size": 22000, "query_size": 2000, "num_al_iterations": 10},
 }
-selected_strategies = [num for num, config in BUDGET_STRATEGIES.items() if config["active"]]
-label_batch_sizes = [BUDGET_STRATEGIES[num]["batch_size"] for num in selected_strategies]
-
-al_algorithms = ['random', 'uncertainty']
-algorithm_abbreviations = {
-    'random': 'ran',
-    'uncertainty': 'unc',
-    'margin': 'mar',      # Example additional algorithm, not implemented yet
-    'entropy': 'ent'      # Example additional algorithm, not implemented yet
-}
-selected_abbreviations = [algorithm_abbreviations[algo] for algo in al_algorithms if algo in algorithm_abbreviations]
-NUM_TRAIN_AL_ITERATIONS = 10
-### END OF CONFIGURATION VARIABLES FOR FILE PATH RECONSTRUCTION ###
+# Calculated from the above configuration
+al_algorithms = [algo for algo, config in AL_ALGORITHMS.items() if config["active"]]
+budget_strategies = [num for num, config in BUDGET_STRATEGIES.items() if config["active"]]
+budget_initial_sizes = [BUDGET_STRATEGIES[num]["initial_size"] for num in budget_strategies]
+budget_query_sizes = [BUDGET_STRATEGIES[num]["query_size"] for num in budget_strategies]
+budget_total_al_iterations = [BUDGET_STRATEGIES[num]["num_al_iterations"] for num in budget_strategies]
+budget_final_sizes = [budget_initial_sizes[i] + budget_query_sizes[i] * budget_total_al_iterations[i] for i in range(len(budget_strategies))]
 
 
 # Reconstruct the file path from the configuration variables
 file_path = reconstruct_rel_file_path_from_config(
     relative_save_folder=relative_save_folder,
-    TRAIN_VAL_RATIO=TRAIN_VAL_RATIO,
-    EPOCHS=EPOCHS,
-    seeds=seeds,
-    train_full_dataset_baseline=train_full_dataset_baseline,
-    label_batch_sizes=label_batch_sizes,
-    RATIO_BATCH_TO_INIT_DATASET=RATIO_BATCH_TO_INIT_DATASET,
-    selected_abbreviations=selected_abbreviations,
-    NUM_TRAIN_AL_ITERATIONS=NUM_TRAIN_AL_ITERATIONS
+    dataset_name=dataset_name, 
+    model_name=model_name, 
+    pretrained_weights=pretrained_weights, 
+    train_val_ratio=TRAIN_VAL_RATIO, 
+    epochs=EPOCHS, 
+    batch_size=BATCH_SIZE, 
+    seeds=seeds, 
+    train_full_dataset_baseline=train_full_dataset_baseline, 
+    al_algorithms=al_algorithms, 
+    budget_strategies=budget_strategies,
+    budget_initial_sizes=budget_initial_sizes, 
+    budget_query_sizes=budget_query_sizes, 
+    budget_total_al_iterations=budget_total_al_iterations
 )
 
 # Load the simulation data from the file path
@@ -95,7 +104,7 @@ simulation_time = runtimes["simulation"]
 print(f"Total Runtime: {format_time(simulation_time)}")
 if len(seeds) > 1:
     print("\nPlotting average AL-algorithm performances for each budget strategy across all seeds...")
-    for strategy in selected_strategies:
+    for strategy in budget_strategies:
         fig = plot_al_performance_across_seeds(
             simulation_data,
             strategy,
