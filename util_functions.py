@@ -295,7 +295,7 @@ def active_learning_loop(device,
                     model=model, 
                     typiclust_obj=typiclust,
                     unlabelled_loader_relative=unlabelled_loader_relative,
-                    budget_query_size=budget_query_size
+                    budget=budget_query_size
                 )
             else:
                 raise ValueError("Unsupported strategy!")
@@ -362,7 +362,7 @@ def active_learning_loop(device,
 
             # Initialize typiclust object if typiclust AL algorithm is selected
             if al_algorithm == "typiclust":
-                typiclust = Typiclust(initial_labeled_size=initial_label_size, device=device, n_components=50)
+                typiclust = Typiclust(initial_labeled_size=budget_initial_size, device=device, n_components=50)
 
 
 

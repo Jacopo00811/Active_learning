@@ -36,7 +36,7 @@ train_full_dataset_baseline = True # Enable to run the model with all labelled d
 AL_ALGORITHMS = {
     'random': {"active": True},
     'uncertainty': {"active": True},
-    'typiclust': {"active": False},
+    'typiclust': {"active": True},
     'margin': {"active": False}, # Example additional algorithm, not implemented yet
     'entropy': {"active": False} # Example additional algorithm, not implemented yet
 }
