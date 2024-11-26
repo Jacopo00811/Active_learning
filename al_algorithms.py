@@ -38,6 +38,5 @@ def random_sampling(unlabelled_loader_relative, budget_query_size):
     return np.random.choice(indices, budget_query_size, replace=False).tolist()
 
 # Typiclus Sampling Strategy
-def typiclus_sampling(model, unlabelled_loader_relative, budget_query_size):
-    return model.active_learning_iteration(budget_query_size, unlabelled_loader_relative)
-
+def typiclust_sampling(model, typiclust_obj, unlabelled_loader_relative, budget):
+    return typiclust_obj.active_learning_iteration(budget, unlabelled_loader_relative, model)
