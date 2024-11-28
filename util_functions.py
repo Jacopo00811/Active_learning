@@ -1,11 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torchvision
 from torch.utils.data import DataLoader, Subset, random_split
 import numpy as np
-import matplotlib.pyplot as plt
 import random
-from scipy import stats
 import time
 from al_algorithms import *
 from Typiclust import Typiclust
@@ -46,7 +45,6 @@ def format_time(seconds):
     else:
         return f"{secs:.2f}s"
 
-
 def set_global_seed(seed):
     """
     Set global seed for reproducibility in PyTorch, NumPy, and Python random.
@@ -61,24 +59,38 @@ def set_global_seed(seed):
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)  # for multi-GPU
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
     generator = torch.Generator()
     generator.manual_seed(seed)
     return generator
 
-
-def reset_model_weights(model):
+def setup_model(device, model_name, pretrained_weights):
     """
-    Reset model weights to default initialization.
-    Is done for each train/AL iteration to ensure consistent starting point for model training each time the labelled training and validation subsets is updated.
-    
+    Setup a fresh model instance
+   
     Args:
-        model (torch.nn.Module): Model to reset weights for
+        device (torch.device): Device to use for the model
+        model_name (str): Name of the model to use
+        pretrained_weights (bool): Whether to use pretrained weights
+            
+    Returns:
+        model (nn.Module): Fresh model instance
     """
-
-    for layer in model.modules():
-        if hasattr(layer, 'reset_parameters'):
-            layer.reset_parameters()
-
+    if model_name == "ResNet-18":
+        # Load pretrained weights if specified, otherwise None
+        weights = torchvision.models.ResNet18_Weights.DEFAULT if pretrained_weights else None
+        
+        # Create a new model instance
+        model = torchvision.models.resnet18(weights=weights)
+        model.fc = nn.Linear(model.fc.in_features, 10)
+        model = model.to(device)
+        return model
+    else:
+        raise ValueError(f"Model {model_name} not supported.")
 
 def evaluate_model(device, model, data_loader):
     """
@@ -102,7 +114,7 @@ def evaluate_model(device, model, data_loader):
             correct += (predicted == labels).sum().item()
     return (100 * correct / total)
 
-def train_model(device, model, epochs, train_loader, val_loader):
+def train_model(device, model, epochs, train_loader, val_loader, generator=None):
     """
     Train model on the training set and evaluate on the validation set for a specified number of epochs.
 
@@ -113,6 +125,8 @@ def train_model(device, model, epochs, train_loader, val_loader):
         train_loader (torch.utils.data.DataLoader): DataLoader for the training set
         val_loader (torch.utils.data.DataLoader): DataLoader for the validation set
     """
+    if generator is not None:
+        torch.manual_seed(generator.initial_seed())
 
     model.train()
 
@@ -137,19 +151,65 @@ def train_model(device, model, epochs, train_loader, val_loader):
         print(f"    Epoch {epoch+1}/{epochs}, Validation: {val_accuracy:.2f}% acc", end='\r') # Print epoch information, overwrite the line for each epoch
     print(end='\x1b[2K\r')  # Clear the line after training is finished
 
-def active_learning_loop(device, 
-                model,
-                epochs,
-                batch_size,
-                train_val_ratio,  
-                train_val_dataset, 
-                full_test_loader, 
-                generator,
-                budget_initial_size,
-                budget_query_size,
-                budget_al_iterations,
-                al_algorithm
-            ):
+def full_training_set_baseline(device, model_name, pretrained_weights, epochs, batch_size, train_dataset, val_dataset, test_dataset, generator):
+    # Create a new generator specifically for this run. This ensures we start from the same state every time
+    run_generator = torch.Generator()
+    run_generator.manual_seed(generator.initial_seed())
+
+    # Create dataloaders with worker_init_fn to ensure worker randomness is controlled
+    def seed_worker(worker_id):
+        # Each worker needs its own seed
+        worker_seed = run_generator.initial_seed() + worker_id
+        np.random.seed(worker_seed)
+        random.seed(worker_seed)
+        torch.manual_seed(worker_seed)
+
+    full_train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=False, generator=run_generator, worker_init_fn=seed_worker, num_workers=0)
+    full_val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, drop_last=False, generator=run_generator, worker_init_fn=seed_worker, num_workers=0)
+    full_test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, drop_last=False, generator=run_generator, worker_init_fn=seed_worker, num_workers=0)
+
+    # Initialize model
+    model=setup_model(
+        device=device, 
+        model_name=model_name, 
+        pretrained_weights=pretrained_weights
+    )
+
+    # Train model on full training set and evaluate on full validation set
+    train_model(
+        device=device, 
+        model=model, 
+        epochs=epochs, 
+        train_loader=full_train_loader, 
+        val_loader=full_val_loader, 
+        generator=run_generator
+    )
+
+    # Evaluate model on full test set
+    test_accuracy = evaluate_model(
+        device=device, 
+        model=model, 
+        data_loader=full_test_loader
+    )
+
+    return test_accuracy
+
+
+def active_learning_loop(
+    device, 
+    model_name,
+    pretrained_weights,
+    epochs,
+    batch_size,
+    train_val_ratio,  
+    train_val_dataset, 
+    test_dataset, 
+    generator,
+    budget_initial_size,
+    budget_query_size,
+    budget_al_iterations,
+    al_algorithm
+):
     """
     Active Learning Loop with AL-query --> Reset Model & Train iterations.
     First iteration is done without AL step to train on initial labelled training and validation subsets.
@@ -158,12 +218,13 @@ def active_learning_loop(device,
 
     Args:
         device (torch.device): Device to use for training and evaluation
-        model (torch.nn.Module): Model to train and evaluate
+        model_name (str): Name of the model to use
+        pretrained_weights (bool): Whether to use pretrained weights
         epochs (int): Number of epochs to train the model in each train/AL iteration
         batch_size (int): Batch size for data loaders
         train_val_ratio (float): Ratio of labelled training set size to labelled validation set size
         train_val_dataset (torch.utils.data.Dataset): Full train/val dataset
-        full_test_loader (torch.utils.data.DataLoader): DataLoader for the full test dataset
+        test_dataset (torch.utils.data.Dataset): Full test dataset
         generator (torch.Generator): Generator for random number generation
         budget_initial_size (int): Initial number of labelled samples to start with
         budget_query_size (int): Number of samples to query in each AL iteration
@@ -209,19 +270,67 @@ def active_learning_loop(device,
                 2.11 Re-initialize unlabelled dataset loader from the updated relative subset.
                 2.12 Train the model on the labelled training set for epochs=epochs and evaluate on the validation set.
                 2.13 After training is finished, evaluate the model on the test set and store the test accuracy.
-            3. Reset model weights, train the model on the labelled training set for epochs=epochs and evaluate on the validation set.
+            3. Re-initialize model to reset weights to initial state, train the model on the labelled training set for epochs=epochs and evaluate on the validation set.
             4. After training is finished, evaluate the model on the test set and store the test accuracy + size of the labelled training and validation sets.
     """
 
-    # Initialize labelled and unlabelled datasets
-    labelled_indices_global = np.random.choice(len(train_val_dataset), budget_initial_size, replace=False)
+    # Create a new generator specifically for this AL run. This ensures we start from the same state every time
+    run_generator = torch.Generator()
+    run_generator.manual_seed(generator.initial_seed())
+
+    # Create a numpy random state that will stay consistent
+    np_rng = np.random.RandomState(generator.initial_seed())
+
+    # Create dataloaders with worker_init_fn to ensure worker randomness is controlled
+    def seed_worker(worker_id):
+        # Each worker needs its own seed
+        worker_seed = run_generator.initial_seed() + worker_id
+        np.random.seed(worker_seed)
+        random.seed(worker_seed)
+        torch.manual_seed(worker_seed)
+
+    # Store initial random states
+    initial_torch_state = torch.get_rng_state()
+    initial_np_state = np.random.get_state()
+    if torch.cuda.is_available():
+        initial_cuda_state = torch.cuda.get_rng_state()
+    
+    # Assert that generators are properly initialized
+    assert run_generator.initial_seed() == generator.initial_seed(), \
+        "Run generator not initialized with correct seed"
+
+
+    # Create dataloader for the full test dataset
+    full_test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, drop_last=False, generator=run_generator, worker_init_fn=seed_worker, num_workers=0)
+
+    # Initialize labelled and unlabelled datasets using our controlled random state
+    labelled_indices_global = np_rng.choice(
+        len(train_val_dataset), 
+        budget_initial_size, 
+        replace=False
+    )
     unlabelled_indices_global = list(set(range(len(train_val_dataset))) - set(labelled_indices_global))
 
     # Split the labelled dataset into train and validation
     train_size = int(len(labelled_indices_global) * train_val_ratio)
     val_size = len(labelled_indices_global) - train_size
-    labelled_train_indices_global, labelled_val_indices_global = random_split(labelled_indices_global, [train_size, val_size], generator=generator)
 
+    # Convert to tensor for torch splitting
+    indices_tensor = torch.tensor(labelled_indices_global)
+    splits = random_split(
+        indices_tensor, 
+        [train_size, val_size], 
+        generator=run_generator
+    )
+    # Extract indices from the Subset objects
+    labelled_train_indices_global = [indices_tensor[i].item() for i in splits[0].indices]
+    labelled_val_indices_global = [indices_tensor[i].item() for i in splits[1].indices]
+
+    # Ensure no overlap between labelled and unlabelled sets
+    assert len(set(labelled_indices_global).intersection(set(unlabelled_indices_global))) == 0, "Data leakage detected between labelled and unlabelled sets"
+
+    # Ensure no overlap between training and validation sets
+    assert len(set(labelled_train_indices_global).intersection(set(labelled_val_indices_global))) == 0, "Data leakage detected between training and validation sets"
 
     # Create labelled training and validation subsets with relative indices from the full train/val dataset using global indices
     labelled_train_dataset_relative = Subset(
@@ -244,12 +353,16 @@ def active_learning_loop(device,
     )
 
     # Initialize labelled train and validation dataset loaders from relative subsets
-    labelled_train_loader_relative = DataLoader(labelled_train_dataset_relative, batch_size=batch_size, shuffle=True, drop_last=False, generator=generator)
-    labelled_val_loader_relative = DataLoader(labelled_val_dataset_relative, batch_size=batch_size, shuffle=False, drop_last=False, generator=generator)
+    labelled_train_loader_relative = DataLoader(labelled_train_dataset_relative, batch_size=batch_size, shuffle=True, drop_last=False,
+        generator=run_generator,  # Use run_generator instead of generator
+        worker_init_fn=seed_worker,  # Add the worker seeding function
+        num_workers=0  # Important: Set to 0 for complete reproducibility)
+    )
+    labelled_val_loader_relative = DataLoader(labelled_val_dataset_relative, batch_size=batch_size, shuffle=False, drop_last=False, generator=run_generator, worker_init_fn=seed_worker, num_workers=0)
     # Initialize unlabelled dataset loader from relative subset
-    unlabelled_loader_relative = DataLoader(unlabelled_dataset_relative, batch_size=batch_size, shuffle=False, drop_last=False, generator=generator)
+    unlabelled_loader_relative = DataLoader(unlabelled_dataset_relative, batch_size=batch_size, shuffle=False, drop_last=False, generator=run_generator, worker_init_fn=seed_worker, num_workers=0)
     # (Might be needed for some AL-algorithms) Initialize labelled dataset (both train and val together) loader from relative subset
-    labelled_loader_relative = DataLoader(labelled_dataset_relative, batch_size=batch_size, shuffle=False, drop_last=False, generator=generator)
+    labelled_loader_relative = DataLoader(labelled_dataset_relative, batch_size=batch_size, shuffle=False, drop_last=False, generator=run_generator, worker_init_fn=seed_worker, num_workers=0)
 
     # Define a map from unlabelled relative indices to unlabelled global indices
     # Used to move unlabelled AL-selected relative indices to equivalent global indices
@@ -288,7 +401,8 @@ def active_learning_loop(device,
             elif al_algorithm == "random":
                 selected_unlabelled_relative_indices = random_sampling(
                     unlabelled_loader_relative=unlabelled_loader_relative, 
-                    budget_query_size=budget_query_size
+                    budget_query_size=budget_query_size,
+                    random_state=np_rng
                 )
             elif al_algorithm == "typiclust":
                 selected_unlabelled_relative_indices = typiclust_sampling(
@@ -315,7 +429,7 @@ def active_learning_loop(device,
             unlabelled_relative_to_global_indices_map = {relative_idx: global_idx for relative_idx, global_idx in enumerate(unlabelled_indices_global)}
 
             # Shuffle the selected global indices to avoid bias
-            selected_unlabelled_global_indices = np.random.permutation(selected_unlabelled_global_indices)
+            selected_unlabelled_global_indices = np_rng.permutation(selected_unlabelled_global_indices)
 
             # Split the selected global indices into selected labelled training and validation global indices based on the train/val ratio (bias was removed by shuffling selected global indices)
             selected_labelled_train_size = int(len(selected_unlabelled_global_indices) * train_val_ratio)
@@ -327,6 +441,12 @@ def active_learning_loop(device,
             labelled_val_indices_global = np.concatenate([labelled_val_indices_global, selected_labelled_val_indices_global])
             # (Might be needed for some AL-algorithms) Update the labelled global indices with the selected global indices
             labelled_indices_global = np.concatenate([labelled_train_indices_global, labelled_val_indices_global])
+
+            # Ensure no overlap between labelled and unlabelled sets
+            assert len(set(labelled_indices_global).intersection(set(unlabelled_indices_global))) == 0, "Data leakage detected between labelled and unlabelled sets"
+
+            # Ensure no overlap between training and validation sets
+            assert len(set(labelled_train_indices_global).intersection(set(labelled_val_indices_global))) == 0, "Data leakage detected between training and validation sets"
 
             # Create labelled training and validation subsets with relative indices from the full train/val dataset using updated (added) global indices
             labelled_train_dataset_relative = Subset(
@@ -347,17 +467,26 @@ def active_learning_loop(device,
                 train_val_dataset, 
                 labelled_indices_global
             )
-            
 
             # Re-initialize labelled train and validation dataset loaders from updated relative subsets
-            labelled_train_loader_relative = DataLoader(labelled_train_dataset_relative, batch_size=batch_size, shuffle=True, drop_last=False, generator=generator)
-            labelled_val_loader_relative = DataLoader(labelled_val_dataset_relative, batch_size=batch_size, shuffle=False, drop_last=False, generator=generator)
+            labelled_train_loader_relative = DataLoader(labelled_train_dataset_relative, batch_size=batch_size, shuffle=True, drop_last=False, generator=run_generator, worker_init_fn=seed_worker, num_workers=0)
+            labelled_val_loader_relative = DataLoader(labelled_val_dataset_relative, batch_size=batch_size, shuffle=False, drop_last=False, generator=run_generator, worker_init_fn=seed_worker, num_workers=0)
             # Re-initialize unlabelled dataset loader from updated relative subset
-            unlabelled_loader_relative = DataLoader(unlabelled_dataset_relative, batch_size=batch_size, shuffle=False, drop_last=False, generator=generator)
+            unlabelled_loader_relative = DataLoader(unlabelled_dataset_relative, batch_size=batch_size, shuffle=False, drop_last=False, generator=run_generator, worker_init_fn=seed_worker, num_workers=0)
             # (Might be needed for some AL-algorithms) Re-nitialize labelled dataset (both train and val together) loader from relative subset
-            labelled_loader_relative = DataLoader(labelled_dataset_relative, batch_size=batch_size, shuffle=False, drop_last=False, generator=generator)
-
-        else:
+            labelled_loader_relative = DataLoader(labelled_dataset_relative, batch_size=batch_size, shuffle=False, drop_last=False, generator=run_generator, worker_init_fn=seed_worker, num_workers=0)
+            
+            # Verify sample sizes are as expected
+            expected_size = budget_initial_size + (i * budget_query_size)
+            actual_size = len(labelled_train_indices_global) + len(labelled_val_indices_global)
+            assert actual_size == expected_size, \
+                f"Iteration {i}: Expected {expected_size} samples, got {actual_size}"
+            
+            # Verify no duplicates in selected samples
+            assert len(set(selected_unlabelled_global_indices)) == len(selected_unlabelled_global_indices), \
+                "Duplicate samples selected by AL algorithm"
+            
+        else: # Runs for the first iteration
             al_algorithm_time_iter = "None"
 
             # Initialize typiclust object if typiclust AL algorithm is selected
@@ -368,8 +497,12 @@ def active_learning_loop(device,
 
         ### Train Model on Labelled Data and Evaluate on Test Data ###
 
-        # Reset model weights at the start of each iteration
-        reset_model_weights(model)
+        # Re-initialize model with initial state
+        model = setup_model(
+            device=device, 
+            model_name=model_name, 
+            pretrained_weights=pretrained_weights
+        )
 
         # Train model on labelled training subset and evaluate on labelled validation subset
         training_time_iter = time.time()
@@ -378,7 +511,8 @@ def active_learning_loop(device,
             model=model, 
             epochs=epochs,
             train_loader=labelled_train_loader_relative, 
-            val_loader=labelled_val_loader_relative
+            val_loader=labelled_val_loader_relative,
+            generator=run_generator
         )
         
         training_time_iter = time.time() - training_time_iter
@@ -401,75 +535,16 @@ def active_learning_loop(device,
         
         print(f"  Iteration {i}/10 - Samples: {train_val_set_sizes[i]} ({(1 - train_val_ratio)*100:.0f}% val), Test: {test_accuracy:.2f}% acc, Time: {format_time(iter_time)}, Training: {format_time(training_time_iter)}, AL: {format_time(al_algorithm_time_iter) if al_algorithm_time_iter != 'None' else 'N/A'}")
 
+        # Verify random states haven't unexpectedly changed
+        assert torch.equal(torch.get_rng_state(), initial_torch_state), \
+            "PyTorch random state changed unexpectedly"
+        assert np.array_equal(np.random.get_state()[1], initial_np_state[1]), \
+            "NumPy random state changed unexpectedly"
+        if torch.cuda.is_available():
+            assert torch.equal(torch.cuda.get_rng_state(), initial_cuda_state), \
+                "CUDA random state changed unexpectedly"
+
     return train_val_set_sizes, test_accuracies, training_time_total, al_algorithm_time_total
 
 
-def plot_al_performance_across_seeds(simulation_data, budget_strategy, al_algorithms, confidence_level=0.95):
-    """
-    Plot average performance of AL algorithms across seeds with confidence intervals.
 
-    Args:
-        simulation_data (dict): Simulation data containing results and configuration
-        budget_strategy (str): Budget strategy used in simulation
-        al_algorithms (list): List of AL algorithms to plot
-        confidence_level (float): Confidence level for confidence intervals
-    
-    Returns:
-        matplotlib.figure.Figure: Matplotlib figure containing the plot
-    """
-
-    # Plot average performance of AL algorithms across seeds with confidence intervals.
-    plt.figure(figsize=(10, 6))
-    
-    train_val_ratio = simulation_data["config"]["model"]["train_val_ratio"]
-    
-    for idx, al_algorithm in enumerate(al_algorithms):
-        # Collect data across all seeds
-        all_train_val_set_sizes = []
-        all_test_accuracies = []
-        
-        for seed_name in simulation_data["results"].keys():
-            train_val_set_sizes = simulation_data["results"][seed_name][f"budget_strategy_{budget_strategy}"][al_algorithm]["train_val_set_sizes"]
-            test_accuracies = simulation_data["results"][seed_name][f"budget_strategy_{budget_strategy}"][al_algorithm]["test_accuracies"]
-            
-            all_train_val_set_sizes.append(train_val_set_sizes)
-            all_test_accuracies.append(test_accuracies)
-        
-        # Convert to numpy arrays for easier manipulation
-        all_train_val_set_sizes = np.array(all_train_val_set_sizes)
-        all_test_accuracies = np.array(all_test_accuracies)
-        
-        # Calculate mean and confidence interval
-        mean_test_accuracies = np.mean(all_test_accuracies, axis=0)
-        std_test_accuracies = np.std(all_test_accuracies, axis=0)
-        
-        # Calculate confidence interval
-        n_seeds = len(simulation_data["results"])
-        confidence_interval = stats.t.ppf((1 + confidence_level) / 2, n_seeds - 1) * (std_test_accuracies / np.sqrt(n_seeds))
-        
-        # Plot mean line and confidence interval
-        plt.plot(all_train_val_set_sizes[0], mean_test_accuracies, label=f"{al_algorithm.capitalize()}", marker='o', linewidth=2)
-        plt.fill_between(all_train_val_set_sizes[0], 
-                        mean_test_accuracies - confidence_interval,
-                        mean_test_accuracies + confidence_interval,
-                        alpha=0.2)
-        
-        # Print final performance statistics
-        final_mean = mean_test_accuracies[-1]
-        final_ci = confidence_interval[-1]
-        print(f"    {al_algorithm.capitalize()}:")
-        print(f"        Mean Final Accuracy: {final_mean:.2f}%")
-        print(f"        95% CI: [{final_mean - final_ci:.2f}%, {final_mean + final_ci:.2f}%]")
-    
-    plt.xlabel(f'Training Set Size ({(1 - train_val_ratio) * 100:.0f}% for Validation)')
-    plt.ylabel('Test Accuracy (%)')
-    plt.title(f'Active Learning Performance - Budget Strategy {budget_strategy}\n'
-              f'(Average across {n_seeds} seeds with {int(confidence_level*100)}% confidence intervals)')
-    plt.grid(True, alpha=0.3)
-    plt.legend()
-    
-    # Add minor gridlines for better readability
-    plt.grid(True, which='minor', linestyle=':', alpha=0.2)
-    plt.minorticks_on()
-    
-    return plt.gcf()

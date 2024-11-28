@@ -1,13 +1,12 @@
 import os
 import json
 import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader, random_split
-import torchvision
+from torch.utils.data import random_split
 from torchvision import datasets, transforms
 import matplotlib.pyplot as plt
 import time
-from util_functions import *
+from util_functions import set_global_seed, full_training_set_baseline, active_learning_loop, format_time
+from analysis_functions import plot_al_performance_across_seeds
 
 
 
@@ -17,13 +16,13 @@ from util_functions import *
 ## Dataset & Model Parameters ##
 dataset_name = "CIFAR-10" # Dataset to use for the simulation (only CIFAR-10 supported)
 model_name = "ResNet-18" # Model to use for the simulation (only ResNet-18 supported)
-pretrained_weights = True # Enable to use pretrained weights for the model
 
 ## Simulation Parameters ##
 save_results = True # Enable to save results to file
 relative_save_folder = "./run_results" # Define relative save folder
 
 ## Model Hyperparameters ##
+pretrained_weights = True # Enable to use pretrained weights for the model
 TRAIN_VAL_RATIO = 0.8 # Ratio of training data to use for training (remaining is used for validation)
 EPOCHS = 10 # Number of epochs to train the model for each budget size
 BATCH_SIZE = 64 # Batch size for data loaders
@@ -52,36 +51,37 @@ BUDGET_STRATEGIES = {
 ### End of Parameters ###
 
 
-# Retrieve selected AL algorithms
-al_algorithms = [algo for algo, config in AL_ALGORITHMS.items() if config["active"]]
 
-# Setup budget strategies
-budget_strategies = [num for num, config in BUDGET_STRATEGIES.items() if config["active"]]
-budget_initial_sizes = [BUDGET_STRATEGIES[num]["initial_size"] for num in budget_strategies]
-budget_query_sizes = [BUDGET_STRATEGIES[num]["query_size"] for num in budget_strategies]
-budget_total_al_iterations = [BUDGET_STRATEGIES[num]["num_al_iterations"] for num in budget_strategies]
-budget_final_sizes = [budget_initial_sizes[i] + budget_query_sizes[i] * budget_total_al_iterations[i] for i in range(len(budget_strategies))]
+## Device Selection ##
+device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu') # Set the device to CUDA / MPS if available, otherwise to CPU.
 
-# Calculate total number of baseline and training/AL iterations (used for status printing)
-num_seeds = len(seeds)
-num_baselines = len(seeds) if train_full_dataset_baseline else 0
-num_strategies = len(budget_strategies)
-num_al_algorithms = len(al_algorithms)
+## AL Algorithms Setup ##
+al_algorithms = [algo for algo, config in AL_ALGORITHMS.items() if config["active"]] # Retrieve selected AL algorithms
 
-# Set the device to CUDA / MPS if available, otherwise to CPU.
-device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
+## Budget Strategies Setup ##
+budget_strategies = [num for num, config in BUDGET_STRATEGIES.items() if config["active"]] # Retrieve selected budget strategies
+budget_initial_sizes = [BUDGET_STRATEGIES[num]["initial_size"] for num in budget_strategies] # Retrieve initial sizes for each budget strategy
+budget_query_sizes = [BUDGET_STRATEGIES[num]["query_size"] for num in budget_strategies] # Retrieve query sizes for each budget strategy
+budget_total_al_iterations = [BUDGET_STRATEGIES[num]["num_al_iterations"] for num in budget_strategies] # Retrieve total number of AL iterations for each budget strategy
+budget_final_sizes = [budget_initial_sizes[i] + budget_query_sizes[i] * budget_total_al_iterations[i] for i in range(len(budget_strategies))] # Calculate final sizes for each budget strategy
 
+# Check for overlap between budget strategies
+for i in range(len(budget_strategies)):
+    for j in range(i+1, len(budget_strategies)):
+        budget_final_sizes[i] <= budget_initial_sizes[j], f"Overlap between budget strategies detected. Strategy {budget_strategies[i]} has final size {budget_final_sizes[i]} and strategy {budget_strategies[j]} has initial size {budget_initial_sizes[j]}."
+
+## Simulation Saved Data Structure ##
 # Store configuration data
 simulation_data = {
     "config": {
         "simulation": {
+            "save_results": save_results,"relative_save_folder": relative_save_folder,
+            "device": str(device),
             "dataset_name": dataset_name,
             "model_name": model_name,
-            "pretrained_weights": pretrained_weights,
-            "device": str(device),
-            "save_results": save_results,"relative_save_folder": relative_save_folder
         },
         "model": {
+            "pretrained_weights": pretrained_weights,
             "train_val_ratio": TRAIN_VAL_RATIO,
             "epochs": EPOCHS,
             "batch_size": BATCH_SIZE
@@ -101,8 +101,6 @@ simulation_data = {
         }
     }
 }
-
-
 
 # Store runtime data
 simulation_data["runtimes"] = {
@@ -128,11 +126,11 @@ simulation_data["runtimes"] = {
 # Initialize results data storage
 simulation_data["results"] = {}
 
-
-# Construct the filename
-file_name = (
+## File Name Generation & Save Folder Creation ##
+file_name = ( # Construct the filename
     f"{dataset_name.lower()}_"
-    f"{model_name.lower()}_ptw{1 if pretrained_weights else 0}_"
+    f"{model_name.lower()}_"
+    f"ptw{1 if pretrained_weights else 0}_"
     f"tvr{int(TRAIN_VAL_RATIO*100)}_"
     f"ep{EPOCHS}_"
     f"bs{BATCH_SIZE}_"
@@ -145,26 +143,29 @@ file_name = (
     f"bni{'-'.join(map(str, budget_total_al_iterations))}"
 )
 
+file_path = os.path.join(relative_save_folder, file_name) # Construct the file path
 
-file_path = os.path.join(relative_save_folder, file_name)
+os.makedirs(relative_save_folder, exist_ok=True) # Ensure the folder exists
 
-# Ensure the folder exists
-os.makedirs(relative_save_folder, exist_ok=True)
+## Size Parameters used for Status Printing ##
+num_seeds = len(seeds)
+num_baselines = len(seeds) if train_full_dataset_baseline else 0
+num_strategies = len(budget_strategies)
+num_al_algorithms = len(al_algorithms)
 
-
-# Print simulation configuration
+## Print Simulation Configuration ##
 print("============= ACTIVE LEARNING SIMULATION CONFIGURATION =============")
 
 print("\nDATASET & MODEL:")
 print(f"- Dataset: {dataset_name}")
 print(f"- Model: {model_name}")
-print(f"- Pretrained Weights Enabled: {pretrained_weights}")
 
 print("\nSIMULATION PARAMETERS:")
 print("- Running on device:", str(device).upper())
 print(f"- Save Results Enabled: {save_results}")
 
 print(f"\nMODEL HYPERPARAMETERS:")
+print(f"- Pretrained Weights Enabled: {pretrained_weights}")
 print(f"- Training/Validation Split Ratio: {TRAIN_VAL_RATIO}")
 print(f"- Epochs per Training Iteration: {EPOCHS}")
 print(f"- Batch Size: {BATCH_SIZE}")
@@ -211,13 +212,12 @@ Seeds: {len(seeds)}
 print("====================================================================")
 
 
-# Save the results to a JSON file if enabled and the file does not already exist
+## Check if both the file already exists and saving is enabled ##
 if save_results:
     if os.path.exists(file_path): # Check if file already exists
         raise FileExistsError(f"Simulation {file_name} already exists in {file_path}\nSimulation with current config already has saved results from a previous run.\nIdentical config = Identical results, check saved simulation if data is needed.\nIf you want to run the simulation again, change the configuration, delete the existing file, or alternatively set save_results to False.")
 
-
-# Load the dataset
+## Load the dataset and split into training and validation sets ##
 if dataset_name == "CIFAR-10":
     # Load CIFAR-10 with transformations
     transform = transforms.Compose([
@@ -235,53 +235,33 @@ else:
 train_size = int(TRAIN_VAL_RATIO * len(train_val_dataset))
 val_size = len(train_val_dataset) - train_size
 
-print("\nBeginning AL Simulation...")
-print(f"Save results: {save_results}")
-print(f"Seeds to run: {seeds}")
-print(f"Baselines per seed: {1 if train_full_dataset_baseline else 0}")
-print(f"Budget strategies per seed: {budget_strategies}")
-print(f"AL-algorithms per budget strategy: {al_algorithms}")
+## Print Configuration Summary ##
+print(f"\nConfig summary:")
+print(f"- Save results: {save_results}")
+print(f"- Device: {device} | Dataset: {dataset_name}")
+print(f"- Model: {model_name} | Pretrained: {pretrained_weights} | Train/Val Ratio: {TRAIN_VAL_RATIO} | Epochs: {EPOCHS} | Batch Size: {BATCH_SIZE}")
+print(f"- Seeds to run: {seeds}")
+print(f"- Run full dataset baseline per seed: {train_full_dataset_baseline}")
+print(f"- Budget strategies per seed: {budget_strategies}")
+print(f"- AL-algorithms per budget strategy: {al_algorithms}")
 
-# Initialize timer
-simulation_time = time.time()
+print("\nBeginning AL Simulation...")
+
+
+## Simulation Loop ##
+simulation_time = time.time() # Initialize timer
 
 # Run the active learning evaluation loop for each seed
 for seed_idx, seed in enumerate(seeds):
     seed_time = time.time()
-
+    simulation_data["results"][f"seed_{seed}"] = {}
     print(f"\n\n[SEED {seed} ({seed_idx+1}/{num_seeds})]")
     
-    # Setup model
-    if model_name == "ResNet-18":
-        # Load ResNet-18 model with or without pretrained weights
-        if pretrained_weights:
-            # Load pretrained weights with metadata
-            weights = torchvision.models.ResNet18_Weights.DEFAULT
-        else:
-            weights = None
-            transform = None
-
-        model = torchvision.models.resnet18(weights=weights)
-        model.fc = nn.Linear(model.fc.in_features, 10)
-        model = model.to(device)
-
-    else:
-        raise ValueError(f"Model {model_name} not supported.")
-
-
     # Set random seed and generator used for data loaders
-    generator = set_global_seed(seed)
-    simulation_data["results"][f"seed_{seed}"] = {}
+    initial_generator = set_global_seed(seed)
 
     # Split the dataset into training and validation
-    train_dataset, val_dataset = random_split(train_val_dataset, [train_size, val_size], generator=generator)
-
-    # Data loaders
-    full_train_val_loader = DataLoader(train_val_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=False, generator=generator)
-    full_train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=False, generator=generator) # Only used for training baseline with all labels
-    full_val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, generator=generator) # Only used for validation baseline with all labels
-    full_test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, generator=generator) # Both used for testing with all labels and for Train/AL iterations
-
+    train_dataset, val_dataset = random_split(train_val_dataset, [train_size, val_size], generator=initial_generator)
 
     # (If enabled) Train the model with entire dataset labelled to establish maximum performance baseline
     if train_full_dataset_baseline:
@@ -289,28 +269,23 @@ for seed_idx, seed in enumerate(seeds):
 
         full_dataset_baseline_time = time.time()
 
-        reset_model_weights(model)
-
-        train_model(
+        test_accuracy = full_training_set_baseline(
             device=device, 
-            model=model, 
+            model_name=model_name, 
+            pretrained_weights=pretrained_weights, 
             epochs=EPOCHS, 
-            train_loader=full_train_loader, 
-            val_loader=full_val_loader, 
-        )
-
-        test_accuracy = evaluate_model(
-            device=device, 
-            model=model, 
-            data_loader=full_test_loader
-        )
+            batch_size=BATCH_SIZE, 
+            train_dataset=train_dataset, 
+            val_dataset=val_dataset, 
+            test_dataset=test_dataset, 
+            generator=initial_generator)
 
         full_dataset_baseline_time = time.time() - full_dataset_baseline_time
 
         simulation_data["results"][f"seed_{seed}"]["full_dataset_baseline"] = test_accuracy
         simulation_data["runtimes"]["full_dataset_baselines"][f"seed_{seed}_full_dataset_baseline"] = full_dataset_baseline_time
 
-        print(f"Baseline Complete - Test Accuracy: {test_accuracy:.2f}% - Runtime: {format_time(full_dataset_baseline_time)}")
+        print(f"Baseline Complete - Test: {test_accuracy:.2f}% acc, Total time: {format_time(full_dataset_baseline_time)}")
     else:
         simulation_data["results"][f"seed_{seed}"]["full_dataset_baseline"] = None
         simulation_data["runtimes"]["full_dataset_baselines"][f"seed_{seed}_full_dataset_baseline"] = None
@@ -320,6 +295,7 @@ for seed_idx, seed in enumerate(seeds):
     # For each budget strategy, train, evaluate, visualize and compare all AL strategies
     for strategy_idx, strategy in enumerate(budget_strategies):
         budget_strategy_time = time.time()
+        simulation_data["results"][f"seed_{seed}"][f"budget_strategy_{strategy}"] = {}
 
         budget_initial_size = budget_initial_sizes[strategy_idx]
         budget_query_size = budget_query_sizes[strategy_idx]
@@ -328,24 +304,26 @@ for seed_idx, seed in enumerate(seeds):
 
         print(f"\n[SEED {seed} ({seed_idx+1}/{num_seeds})) | BUDGET STRATEGY {strategy} ({strategy_idx+1}/{num_strategies})]")
         print(f"Initial size: {budget_initial_size} → Final size: {budget_final_size} | Query size: {budget_query_size} | AL Iterations: {budget_al_iterations}")
-
-        simulation_data["results"][f"seed_{seed}"][f"budget_strategy_{strategy}"] = {}
+        
+        # Debug lists for initial test accuracy, should be the same for all AL algorithms since no AL happens in the first (0'th) iteration, only training on the same initial labelled set
+        debug_initial_test_accuracy = []
 
         for al_algorithm_idx, al_algorithm in enumerate(al_algorithms):
-            print(f"\n[SEED {seed} ({seed_idx+1}/{num_seeds}) | BUDGET STRATEGY {strategy} ({strategy_idx+1}/{num_strategies}) | AL: {al_algorithm.upper()} ({al_algorithm_idx+1}/{num_al_algorithms})]")
-
             simulation_data["results"][f"seed_{seed}"][f"budget_strategy_{strategy}"][al_algorithm] = {}
+            
+            print(f"\n[SEED {seed} ({seed_idx+1}/{num_seeds}) | BUDGET STRATEGY {strategy} ({strategy_idx+1}/{num_strategies}) | AL: {al_algorithm.upper()} ({al_algorithm_idx+1}/{num_al_algorithms})]")
             
             # Run active learning loop, return training set sizes and corresponding test accuracies
             train_val_set_sizes, test_accuracies, training_time_total, al_time_total = active_learning_loop(
                 device=device, 
-                model=model,
+                model_name=model_name,
+                pretrained_weights=pretrained_weights,
                 epochs=EPOCHS,
                 batch_size=BATCH_SIZE,
                 train_val_ratio=TRAIN_VAL_RATIO,  
                 train_val_dataset=train_val_dataset,
-                full_test_loader=full_test_loader, 
-                generator=generator,
+                test_dataset=test_dataset,
+                generator=initial_generator,
                 budget_initial_size=budget_initial_size,
                 budget_query_size=budget_query_size,
                 budget_al_iterations=budget_al_iterations,
@@ -362,6 +340,11 @@ for seed_idx, seed in enumerate(seeds):
 
             print(f"{al_algorithm.upper()} complete - Test: {test_accuracies[-1]:.2f}% acc, Total training time: {format_time(training_time_total)}, Total AL time: {format_time(al_time_total)}")
 
+            # Debug: Store initial test accuracy for comparison
+            debug_initial_test_accuracy.append(test_accuracies[0])
+            if len(debug_initial_test_accuracy) > 1:
+                assert abs(debug_initial_test_accuracy[-1] - debug_initial_test_accuracy[-2]) < 1e-6, "Initial test accuracy should be the same for all AL algorithms, as no AL happens in the first iteration and model is trained on the same initial labelled set."
+
 
         budget_strategy_time = time.time() - budget_strategy_time
         simulation_data["runtimes"]["budget_strategies"][f"seed_{seed}_budget_{strategy}"] = budget_strategy_time
@@ -370,8 +353,11 @@ for seed_idx, seed in enumerate(seeds):
         strategy_best_accuracy = 0
 
         print(f"\n[SEED {seed} ({seed_idx+1}/{num_seeds})) | BUDGET STRATEGY {strategy} ({strategy_idx+1}/{num_strategies}) | COMPLETED]")
+        print(f"Total Runtime: {format_time(budget_strategy_time)}, Summary:")
         for al_algorithm_idx, al_algorithm in enumerate(al_algorithms):
             test_accuracies = simulation_data["results"][f"seed_{seed}"][f"budget_strategy_{strategy}"][al_algorithm]["test_accuracies"]
+            training_time_total = simulation_data["runtimes"]["training_and_al_algorithms"][f"seed_{seed}_budget_{strategy}_{al_algorithm}"]["training"]
+            al_time_total = simulation_data["runtimes"]["training_and_al_algorithms"][f"seed_{seed}_budget_{strategy}_{al_algorithm}"]["al"]
 
             if test_accuracies[-1] > strategy_best_accuracy or strategy_best_algorithm is None:
                 strategy_best_algorithm = al_algorithm

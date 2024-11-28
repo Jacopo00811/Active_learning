@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 
 
 # Uncertainty Sampling (Least Confidence)
@@ -33,9 +32,9 @@ def uncertainty_sampling_least_confidence(device, model, unlabelled_loader_relat
         return indices[uncertain_indices].tolist()
 
 # Random Sampling Strategy
-def random_sampling(unlabelled_loader_relative, budget_query_size):
+def random_sampling(unlabelled_loader_relative, budget_query_size, random_state):
     indices = list(range(len(unlabelled_loader_relative.dataset)))
-    return np.random.choice(indices, budget_query_size, replace=False).tolist()
+    return random_state.choice(indices, size=budget_query_size, replace=False)
 
 # Typiclus Sampling Strategy
 def typiclust_sampling(model, typiclust_obj, unlabelled_loader_relative, budget):

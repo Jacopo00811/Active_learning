@@ -1,13 +1,40 @@
 import json
 import os
 import matplotlib.pyplot as plt
-from util_functions import format_time, plot_al_performance_across_seeds
+from util_functions import format_time
+from analysis_functions import plot_al_performance_across_seeds
+
+
+## TESTING RESULTS ##
+# With pretrained weights
+    # With baseline
+        # Baseline Complete - Test: 77.99% acc
+        # RANDOM summary - Test: 60.70% acc
+        # UNCERTAINTY summary - Test: 64.25% acc
+    # Without baseline
+        # RANDOM summary - Test: 60.70% acc
+        # UNCERTAINTY summary - Test: 64.25% acc
+
+# Without pretrained weights
+    # With baseline
+        # Baseline Complete - Test: 70.48% acc
+        # RANDOM summary - Test: 42.45% acc
+        # UNCERTAINTY summary - Test: 41.95% acc
+    # Without baseline
+        # RANDOM summary - Test: 42.45% acc
+        # UNCERTAINTY summary - Test: 41.95% acc
+
+# Observations:
+# - Baseline vs no baseline: Doesn't affect AL performance results, indicating model weights re-initialization is working correctly (no weights leakage)
+# - Pretrained vs not pretrained: Baseline performance is slightly better with pretrained weights, AL performance is significantly better with pretrained weights. Indicates that pretrained weights are beneficial for AL performance, and that they are no longer reset to random weights during AL iterations.
+
 
 
 def reconstruct_rel_file_path_from_config(relative_save_folder, dataset_name, model_name, pretrained_weights, train_val_ratio, epochs, batch_size, seeds, train_full_dataset_baseline, al_algorithms, budget_strategies, budget_initial_sizes, budget_query_sizes, budget_total_al_iterations):
     file_name = (
         f"{dataset_name.lower()}_"
-        f"{model_name.lower()}_ptw{1 if pretrained_weights else 0}_"
+        f"{model_name.lower()}_"
+        f"ptw{1 if pretrained_weights else 0}_"
         f"tvr{int(train_val_ratio*100)}_"
         f"ep{epochs}_"
         f"bs{batch_size}_"
