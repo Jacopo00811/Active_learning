@@ -14,105 +14,95 @@ from util_functions import *
 
 ### Begin of Parameters ###
 
+## Dataset & Model Parameters ##
+dataset_name = "CIFAR-10" # Dataset to use for the simulation (only CIFAR-10 supported)
+model_name = "ResNet-18" # Model to use for the simulation (only ResNet-18 supported)
+pretrained_weights = True # Enable to use pretrained weights for the model
+
 ## Simulation Parameters ##
-seeds = [0, 1] # Set random seeds to decrease uncertainty
-train_full_dataset_baseline = True # Enable to run the model with all labelled data to establish maximum performance baseline
-relative_val = True # Enable to use relative validation set size, otherwise use full validation set
 save_results = True # Enable to save results to file
 relative_save_folder = "./run_results" # Define relative save folder
-print_al_iterations = True # Enable to print AL iteration results
-print_iteration_epochs = False # Enable to print epochs + validation accuracy for each AL iteration
 
 ## Model Hyperparameters ##
 TRAIN_VAL_RATIO = 0.8 # Ratio of training data to use for training (remaining is used for validation)
-EPOCHS = 3 # Number of epochs to train the model for each budget size
+EPOCHS = 10 # Number of epochs to train the model for each budget size
+BATCH_SIZE = 64 # Batch size for data loaders
+
+## Seed and Baseline Parameters ##
+seeds = [0, 1] # Set random seeds to decrease uncertainty
+train_full_dataset_baseline = True # Enable to run the model with all labelled data to establish maximum performance baseline
 
 ## Active Learning Algorithm Parameters ##
-NUM_TRAIN_AL_ITERATIONS = 10 # Number of Train/AL iterations to run for each algorithm for budget strategy
-al_algorithms = ['random', 'uncertainty', 'typiclust'] # Active Learning algorithms to run
-algorithm_abbreviations = { # Abbreviations for each algorithm, used for file naming
-    'random': 'ran',
-    'uncertainty': 'unc',
-    'typiclust': 'typ',
-    'margin': 'mar',      # Example additional algorithm, not implemented yet
-    'entropy': 'ent'      # Example additional algorithm, not implemented yet
+AL_ALGORITHMS = {
+    'random': {"active": True},
+    'uncertainty': {"active": True},
+    'typiclust': {"active": True},
+    'margin': {"active": False}, # Example additional algorithm, not implemented yet
+    'entropy': {"active": False} # Example additional algorithm, not implemented yet
 }
 
 ## Budget Strategy Parameters ##
-RATIO_BATCH_TO_INIT_DATASET = 3 # Ratio of initial labelled dataset size to label batch size (labels added per iteration)
 BUDGET_STRATEGIES = {
-   1: {"active": True, "batch_size": 200},
-   2: {"active": True, "batch_size": 400}, 
-   3: {"active": False, "batch_size": 800},
-   4: {"active": False, "batch_size": 1600}
+    1: {"active": True, "initial_size": 1000, "query_size": 250, "num_al_iterations": 10}, # Final size: 3500
+    2: {"active": True, "initial_size": 4000, "query_size": 500, "num_al_iterations": 10}, # Final size: 9000
+    3: {"active": False, "initial_size": 10000, "query_size": 1000, "num_al_iterations": 10}, # Final size: 20000
+    4: {"active": False, "initial_size": 22000, "query_size": 2000, "num_al_iterations": 10}, # Final size: 42000 (almost full training/validation set size of 50000)
 }
 
 ### End of Parameters ###
 
 
+# Retrieve selected AL algorithms
+al_algorithms = [algo for algo, config in AL_ALGORITHMS.items() if config["active"]]
+
 # Setup budget strategies
-selected_strategies = [num for num, config in BUDGET_STRATEGIES.items() if config["active"]]
-label_batch_sizes = [BUDGET_STRATEGIES[num]["batch_size"] for num in selected_strategies]
-initial_label_sizes = [BUDGET_STRATEGIES[num]["batch_size"] * RATIO_BATCH_TO_INIT_DATASET for num in selected_strategies]
+budget_strategies = [num for num, config in BUDGET_STRATEGIES.items() if config["active"]]
+budget_initial_sizes = [BUDGET_STRATEGIES[num]["initial_size"] for num in budget_strategies]
+budget_query_sizes = [BUDGET_STRATEGIES[num]["query_size"] for num in budget_strategies]
+budget_total_al_iterations = [BUDGET_STRATEGIES[num]["num_al_iterations"] for num in budget_strategies]
+budget_final_sizes = [budget_initial_sizes[i] + budget_query_sizes[i] * budget_total_al_iterations[i] for i in range(len(budget_strategies))]
 
 # Calculate total number of baseline and training/AL iterations (used for status printing)
 num_seeds = len(seeds)
-num_strategies = len(selected_strategies)
+num_baselines = len(seeds) if train_full_dataset_baseline else 0
+num_strategies = len(budget_strategies)
 num_al_algorithms = len(al_algorithms)
-num_total_train_al_iterations = len(seeds) * len(selected_strategies) * len(al_algorithms) * (NUM_TRAIN_AL_ITERATIONS + 1) # + 1 because the first iteration uses the initial labelled dataset, so no active learning is used
 
 # Set the device to CUDA / MPS if available, otherwise to CPU.
 device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
 
-# Load CIFAR-10 with transformations
-transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-])
-
-# CIFAR-10 Dataset (Training and Test splits)
-train_val_dataset = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
-test_dataset = datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
-
-# Split into training and validation sets
-train_size = int(TRAIN_VAL_RATIO * len(train_val_dataset))
-val_size = len(train_val_dataset) - train_size
-
 # Store configuration data
 simulation_data = {
-   "config": {
-       "simulation": {
-           "device": str(device),
-           "seeds": seeds,
-           "train_full_dataset_baseline": train_full_dataset_baseline,
-           "save_results": save_results,
-           "relative_save_folder": relative_save_folder,
-           "print_settings": {
-               "al_iterations": print_al_iterations,
-               "epochs": print_iteration_epochs
-           }
-       },
-       "model": {
-           "train_val_ratio": TRAIN_VAL_RATIO,
-           "epochs": EPOCHS
-       },
-       "active_learning": {
-           "train_al_iterations": NUM_TRAIN_AL_ITERATIONS,
-           "al_algorithms": al_algorithms,
-       },
-       "budget": {
-           "ratio_batch_to_init_dataset": RATIO_BATCH_TO_INIT_DATASET,
-           "selected_strategies": {
-                num: {
-                    "batch_size": BUDGET_STRATEGIES[num]["batch_size"],
-                    "initial_size": BUDGET_STRATEGIES[num]["batch_size"] * RATIO_BATCH_TO_INIT_DATASET,
-                    "final_size": BUDGET_STRATEGIES[num]["batch_size"] * NUM_TRAIN_AL_ITERATIONS + BUDGET_STRATEGIES[num]["batch_size"] * RATIO_BATCH_TO_INIT_DATASET
-                }
-                for num in selected_strategies
-           }
-       }
-   }
+    "config": {
+        "simulation": {
+            "dataset_name": dataset_name,
+            "model_name": model_name,
+            "pretrained_weights": pretrained_weights,
+            "device": str(device),
+            "save_results": save_results,"relative_save_folder": relative_save_folder
+        },
+        "model": {
+            "train_val_ratio": TRAIN_VAL_RATIO,
+            "epochs": EPOCHS,
+            "batch_size": BATCH_SIZE
+        },
+        "seed_and_baseline": {
+            "seeds": seeds,
+            "train_full_dataset_baseline": train_full_dataset_baseline
+        },
+        "active_learning": {
+            "al_algorithms": al_algorithms,
+        },
+        "budget": {
+            "budget_strategies": budget_strategies,
+            "budget_initial_sizes": budget_initial_sizes,
+            "budget_query_sizes": budget_query_sizes,
+            "budget_total_al_iterations": budget_total_al_iterations,
+        }
+    }
 }
+
+
 
 # Store runtime data
 simulation_data["runtimes"] = {
@@ -125,71 +115,132 @@ simulation_data["runtimes"] = {
     "budget_strategies": {
         f"seed_{seed}_budget_{strategy}": None 
         for seed in seeds 
-        for strategy in selected_strategies
+        for strategy in budget_strategies
     },
     "training_and_al_algorithms": {
-        f"seed_{seed}_budget_{strategy}_{algo}": {"training": None, "al_algorithm": None}
+        f"seed_{seed}_budget_{strategy}_{algo}": {"training": None, "al": None}
         for seed in seeds
-        for strategy in selected_strategies
+        for strategy in budget_strategies
         for algo in al_algorithms
     }
 }
 
-# Initialize results data
+# Initialize results data storage
 simulation_data["results"] = {}
 
 
+# Construct the filename
+file_name = (
+    f"{dataset_name.lower()}_"
+    f"{model_name.lower()}_ptw{1 if pretrained_weights else 0}_"
+    f"tvr{int(TRAIN_VAL_RATIO*100)}_"
+    f"ep{EPOCHS}_"
+    f"bs{BATCH_SIZE}_"
+    f"sds{'-'.join(map(str, seeds))}_"
+    f"bl{1 if train_full_dataset_baseline else 0}_"
+    f"algo-{'-'.join([algo[:3] for algo in al_algorithms])}_"
+    f"bsr{'-'.join(map(str, budget_strategies))}_"
+    f"bis{'-'.join(map(str, budget_initial_sizes))}_"
+    f"bqs{'-'.join(map(str, budget_query_sizes))}_"
+    f"bni{'-'.join(map(str, budget_total_al_iterations))}"
+)
 
-print("==================== ACTIVE LEARNING SIMULATION ====================")
-print("Model, Dataset and Device Configuration:")
-print("- Dataset: CIFAR-10")
-print("- Model: ResNet-18")
-print("- Running on device:", device)
-print(f"- Save Results: {save_results}")
-print("<Dynamically print chosen Model and Dataset if/when multiple selectors have been implemented>")
 
-print(f"\nAL Simulation Configuration:")
+file_path = os.path.join(relative_save_folder, file_name)
+
+# Ensure the folder exists
+os.makedirs(relative_save_folder, exist_ok=True)
+
+
+# Print simulation configuration
+print("============= ACTIVE LEARNING SIMULATION CONFIGURATION =============")
+
+print("\nDATASET & MODEL:")
+print(f"- Dataset: {dataset_name}")
+print(f"- Model: {model_name}")
+print(f"- Pretrained Weights Enabled: {pretrained_weights}")
+
+print("\nSIMULATION PARAMETERS:")
+print("- Running on device:", str(device).upper())
+print(f"- Save Results Enabled: {save_results}")
+
+print(f"\nMODEL HYPERPARAMETERS:")
 print(f"- Training/Validation Split Ratio: {TRAIN_VAL_RATIO}")
 print(f"- Epochs per Training Iteration: {EPOCHS}")
+print(f"- Batch Size: {BATCH_SIZE}")
+
+print(f"\nSEEDS & BASELINE:")
 print(f"- Seeds: {seeds}")
-print(f"- Train Full Dataset Baseline: {train_full_dataset_baseline}, ")
+print(f"- Train Full Dataset Baseline Enabled: {train_full_dataset_baseline}")
 
-print(f"\nActive Learning Algorithm Configuration:")
-print(f"- Train/AL Iterations: {NUM_TRAIN_AL_ITERATIONS}")
-print(f"- AL Algorithms: {', '.join(al_algorithms)}")
+print(f"\nACTIVE LEARNING:")
+print(f" - Active AL Algorithms: {', '.join(al_algorithms).upper()}")
 
-print(f"\nBudget Strategy Configuration:")
-print(f"- Selected Budget Strategies: {selected_strategies}")
-print(f"- Ratio of Initial Dataset Size to Label Batch Size: {RATIO_BATCH_TO_INIT_DATASET}x")
-for i, strategy in enumerate(selected_strategies):
+print(f"\nBUDGET STRATEGIES:")
+for i, strategy in enumerate(budget_strategies):
     print(f"  - Budget Strategy {strategy}:")
-    print(f"    - Active: {BUDGET_STRATEGIES[strategy]['active']}")
-    print(f"    - Label Batch Size: {label_batch_sizes[i]}")
-    print(f"    - Initial Labelled Dataset Size: {initial_label_sizes[i]}")
-    print(f"    - Final Labelled Dataset Size: {label_batch_sizes[i] * NUM_TRAIN_AL_ITERATIONS + initial_label_sizes[i]}")
+    print(f"    - Initial size: {budget_initial_sizes[i]} → Final size: {budget_final_sizes[i]}")
+    print(f"    - Query size: {budget_query_sizes[i]} | AL Iterations: {budget_total_al_iterations[i]}")
 
-print(f"\nNesting Structure of runs:")
-print(f"- Number of Seeds to run: {num_seeds}")
-print(f"  - Per seed: Baselines to run: {1 if train_full_dataset_baseline else 0}")
-print(f"    - Per Baseline: Epochs to run: {EPOCHS}")
-print(f"  - Per seed: Budget Strategies to run: {num_strategies}")
-print(f"    - Per Budget Strategy: AL-Algorithms to run: {num_al_algorithms}")
-print(f"      - Per AL-Algorithm: Train/AL Iterations to run: {NUM_TRAIN_AL_ITERATIONS}")
-print(f"        - Per Train/AL Iteration: Epochs to run: {EPOCHS}")
+print("""
+EPOCHS BREAKDOWN (of varying dataset sizes):
+Total Epochs: {total:,}
+├── Baseline: {baseline:,}
+└── Training: {training:,}""".format(
+   total=EPOCHS * (num_baselines + num_strategies*num_al_algorithms*(sum(budget_total_al_iterations)+1)),
+   baseline=EPOCHS * num_baselines,
+   training=EPOCHS * num_strategies*num_al_algorithms*(sum(budget_total_al_iterations)+1)
+))
 
-print(f"\nTotal Baseline + Training/AL runs (of varying dataset sizes) & Epochs:")
-print(f"- Number of baselines to train: {num_seeds}")
-print(f"  - Number of Epochs: {num_seeds*EPOCHS}")
-print(f"- Number of Train/AL-Iterations to run: {num_total_train_al_iterations}")
-print(f"  - Number of Epochs: {num_total_train_al_iterations*EPOCHS}")
-print(f"- Total Number of Epochs: {EPOCHS * (num_seeds + num_total_train_al_iterations)}")
+print(f"""
+SIMULATION STRUCTURE:
+Seeds: {len(seeds)}
+│
+├── Baselines: {1 if train_full_dataset_baseline else 0}
+│   └── Training
+│       └── Epochs: {EPOCHS if train_full_dataset_baseline else 0}
+│
+└── Budget Strategies: {len(budget_strategies)}
+    └── AL-Algorithms: {len(al_algorithms)}
+        └── Iterations: {(np.mean(budget_total_al_iterations) + 1)} (on average)
+            ├── AL (skips first iteration)
+            └── Training
+                └── Epochs: {EPOCHS}
+""")
+
 print("====================================================================")
 
-print("\nBeginning AL Simulation...")
-print(f"Seeds to run: {seeds}")
-print(f"Budget strategies per seed: {selected_strategies}")
-print(f"AL-algorithms per budget strategy: {al_algorithms}")
 
+# Save the results to a JSON file if enabled and the file does not already exist
+if save_results:
+    if os.path.exists(file_path): # Check if file already exists
+        raise FileExistsError(f"Simulation {file_name} already exists in {file_path}\nSimulation with current config already has saved results from a previous run.\nIdentical config = Identical results, check saved simulation if data is needed.\nIf you want to run the simulation again, change the configuration, delete the existing file, or alternatively set save_results to False.")
+
+
+# Load the dataset
+if dataset_name == "CIFAR-10":
+    # Load CIFAR-10 with transformations
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+    ])
+
+    # CIFAR-10 Dataset (Training and Test splits)
+    train_val_dataset = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
+    test_dataset = datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
+else:
+    raise ValueError(f"Dataset {dataset_name} not supported.")
+
+# Split into training and validation sets
+train_size = int(TRAIN_VAL_RATIO * len(train_val_dataset))
+val_size = len(train_val_dataset) - train_size
+
+print("\nBeginning AL Simulation...")
+print(f"Save results: {save_results}")
+print(f"Seeds to run: {seeds}")
+print(f"Baselines per seed: {1 if train_full_dataset_baseline else 0}")
+print(f"Budget strategies per seed: {budget_strategies}")
+print(f"AL-algorithms per budget strategy: {al_algorithms}")
 
 # Initialize timer
 simulation_time = time.time()
@@ -199,6 +250,24 @@ for seed_idx, seed in enumerate(seeds):
     seed_time = time.time()
 
     print(f"\n\n[SEED {seed} ({seed_idx+1}/{num_seeds})]")
+    
+    # Setup model
+    if model_name == "ResNet-18":
+        # Load ResNet-18 model with or without pretrained weights
+        if pretrained_weights:
+            # Load pretrained weights with metadata
+            weights = torchvision.models.ResNet18_Weights.DEFAULT
+        else:
+            weights = None
+            transform = None
+
+        model = torchvision.models.resnet18(weights=weights)
+        model.fc = nn.Linear(model.fc.in_features, 10)
+        model = model.to(device)
+
+    else:
+        raise ValueError(f"Model {model_name} not supported.")
+
 
     # Set random seed and generator used for data loaders
     generator = set_global_seed(seed)
@@ -208,19 +277,15 @@ for seed_idx, seed in enumerate(seeds):
     train_dataset, val_dataset = random_split(train_val_dataset, [train_size, val_size], generator=generator)
 
     # Data loaders
-    full_train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True, drop_last=False, generator=generator) # Only used for training baseline with all labels
-    full_val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False, drop_last=False, generator=generator) # Only used for validation baseline with all labels
-    full_test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False, drop_last=False, generator=generator) # Both used for testing with all labels and for Train/AL iterations
+    full_train_val_loader = DataLoader(train_val_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=False, generator=generator)
+    full_train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=False, generator=generator) # Only used for training baseline with all labels
+    full_val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, generator=generator) # Only used for validation baseline with all labels
+    full_test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False, generator=generator) # Both used for testing with all labels and for Train/AL iterations
 
-    # Setup model
-    model = torchvision.models.resnet18(weights=None)
-    model.fc = nn.Linear(model.fc.in_features, 10)
-    model = model.to(device)
-    # print(f"Model: {model.__class__.__name__}")
 
     # (If enabled) Train the model with entire dataset labelled to establish maximum performance baseline
     if train_full_dataset_baseline:
-        print("Training on the full dataset to find maximum performance baseline...")
+        print(f"\n[SEED {seed} ({seed_idx+1}/{num_seeds}) | TRAINING FULL DATASET BASELINE]")
 
         full_dataset_baseline_time = time.time()
 
@@ -232,7 +297,6 @@ for seed_idx, seed in enumerate(seeds):
             epochs=EPOCHS, 
             train_loader=full_train_loader, 
             val_loader=full_val_loader, 
-            print_iteration_epochs=print_iteration_epochs
         )
 
         test_accuracy = evaluate_model(
@@ -254,15 +318,16 @@ for seed_idx, seed in enumerate(seeds):
 
 
     # For each budget strategy, train, evaluate, visualize and compare all AL strategies
-    for strategy_idx, strategy in enumerate(selected_strategies):
+    for strategy_idx, strategy in enumerate(budget_strategies):
         budget_strategy_time = time.time()
 
-        label_batch_size = label_batch_sizes[strategy_idx]
-        initial_label_size = initial_label_sizes[strategy_idx]
-        final_label_size = label_batch_size * NUM_TRAIN_AL_ITERATIONS + initial_label_size
+        budget_initial_size = budget_initial_sizes[strategy_idx]
+        budget_query_size = budget_query_sizes[strategy_idx]
+        budget_al_iterations = budget_total_al_iterations[strategy_idx]
+        budget_final_size = budget_final_sizes[strategy_idx]
 
         print(f"\n[SEED {seed} ({seed_idx+1}/{num_seeds})) | BUDGET STRATEGY {strategy} ({strategy_idx+1}/{num_strategies})]")
-        print(f"Initial size: {initial_label_size} → Final: {final_label_size} | Batch size: {label_batch_size}")
+        print(f"Initial size: {budget_initial_size} → Final size: {budget_final_size} | Query size: {budget_query_size} | AL Iterations: {budget_al_iterations}")
 
         simulation_data["results"][f"seed_{seed}"][f"budget_strategy_{strategy}"] = {}
 
@@ -272,20 +337,19 @@ for seed_idx, seed in enumerate(seeds):
             simulation_data["results"][f"seed_{seed}"][f"budget_strategy_{strategy}"][al_algorithm] = {}
             
             # Run active learning loop, return training set sizes and corresponding test accuracies
-            train_val_set_sizes, test_accuracies, training_time_total, al_algorithm_time_total = active_learning_loop(
+            train_val_set_sizes, test_accuracies, training_time_total, al_time_total = active_learning_loop(
                 device=device, 
-                model=model, 
-                epochs=EPOCHS, 
-                train_val_dataset=train_val_dataset, 
-                train_val_ratio=TRAIN_VAL_RATIO, 
+                model=model,
+                epochs=EPOCHS,
+                batch_size=BATCH_SIZE,
+                train_val_ratio=TRAIN_VAL_RATIO,  
+                train_val_dataset=train_val_dataset,
                 full_test_loader=full_test_loader, 
-                generator=generator, 
-                num_train_al_iterations=NUM_TRAIN_AL_ITERATIONS, 
-                initial_label_size=initial_label_size, 
-                label_batch_size=label_batch_size, 
-                al_algorithm=al_algorithm, 
-                print_al_iterations=print_al_iterations, 
-                print_iteration_epochs=print_iteration_epochs
+                generator=generator,
+                budget_initial_size=budget_initial_size,
+                budget_query_size=budget_query_size,
+                budget_al_iterations=budget_al_iterations,
+                al_algorithm=al_algorithm
             )
 
             # Store results
@@ -294,9 +358,9 @@ for seed_idx, seed in enumerate(seeds):
 
             # Store training and AL algorithm runtimes
             simulation_data["runtimes"]["training_and_al_algorithms"][f"seed_{seed}_budget_{strategy}_{al_algorithm}"]["training"] = training_time_total
-            simulation_data["runtimes"]["training_and_al_algorithms"][f"seed_{seed}_budget_{strategy}_{al_algorithm}"]["al_algorithm"] = al_algorithm_time_total
+            simulation_data["runtimes"]["training_and_al_algorithms"][f"seed_{seed}_budget_{strategy}_{al_algorithm}"]["al"] = al_time_total
 
-            print(f"{al_algorithm.upper()} complete - Test: {test_accuracies[-1]:.2f}% acc, Total training time: {format_time(training_time_total)}, Total AL time: {format_time(al_algorithm_time_total)}")
+            print(f"{al_algorithm.upper()} complete - Test: {test_accuracies[-1]:.2f}% acc, Total training time: {format_time(training_time_total)}, Total AL time: {format_time(al_time_total)}")
 
 
         budget_strategy_time = time.time() - budget_strategy_time
@@ -313,7 +377,7 @@ for seed_idx, seed in enumerate(seeds):
                 strategy_best_algorithm = al_algorithm
                 strategy_best_accuracy = test_accuracies[-1]
 
-            print(f"{al_algorithm_idx+1}. {al_algorithm.upper()} summary - Test: {test_accuracies[-1]:.2f}% acc, Total training time: {format_time(training_time_total)}, Total AL time: {format_time(al_algorithm_time_total)}")
+            print(f"{al_algorithm_idx+1}. {al_algorithm.upper()} summary - Test: {test_accuracies[-1]:.2f}% acc, Total training time: {format_time(training_time_total)}, Total AL time: {format_time(al_time_total)}")
         print(f"Best AL-Algorithm for Budget Strategy {strategy}: {strategy_best_algorithm.upper()}, Test Accuracy: {strategy_best_accuracy:.2f}%")
 
         plt.figure()
@@ -339,7 +403,7 @@ print("SIMULATION COMPLETE")
 print(f"Total Runtime: {format_time(simulation_time)}")
 if len(seeds) > 1:
     print("\nPlotting average AL-algorithm performances for each budget strategy across all seeds...")
-    for strategy in selected_strategies:
+    for strategy in budget_strategies:
         fig = plot_al_performance_across_seeds(
             simulation_data,
             strategy,
@@ -347,29 +411,8 @@ if len(seeds) > 1:
         )
         plt.show()
 else:
-    print("Only one seed, no need to plot average peformance across all seeds.")
+    print("\nSkipping average AL-algorithm performance plots - Only one seed was run.")
 
-
-
-
-# Map the present algorithms to their abbreviations
-selected_abbreviations = [algorithm_abbreviations[algo] for algo in al_algorithms if algo in algorithm_abbreviations]
-
-# Construct the filename
-file_name = (
-    f"model_{int(TRAIN_VAL_RATIO*100)}_{EPOCHS}_"
-    f"seeds_{'-'.join(map(str, seeds))}_"
-    f"baseline_{train_full_dataset_baseline}_"
-    f"batch_{'-'.join(map(str, label_batch_sizes))}_"
-    f"ratio_{RATIO_BATCH_TO_INIT_DATASET}_"
-    f"algo_{'-'.join(selected_abbreviations)}_"
-    f"iter_{NUM_TRAIN_AL_ITERATIONS}"
-)
-
-file_path = os.path.join(relative_save_folder, file_name)
-
-# Ensure the folder exists
-os.makedirs(relative_save_folder, exist_ok=True)
 
 # Save the results to a JSON file if enabled and the file does not already exist
 if save_results:
@@ -377,8 +420,6 @@ if save_results:
         # Save the dictionary as a JSON file
         with open(file_path, "w") as file:
             json.dump(simulation_data, file, indent=4)
-        print(f"\nData \n{file_name} \nsaved to \n{file_path}")
-    else:
-        print(f"\nFile \n{file_name} \nalready exists in \n{file_path}, \nskipping save.")
+        print(f"\nSimulation results saved to \n{file_path}")
 else:
-    print("\nResults not saved, set save_results to True to save results.")
+    print("\nSAVING DISABLED - Results not saved to file. Set save_results to True to save results.")

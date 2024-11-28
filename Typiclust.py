@@ -1,29 +1,25 @@
-from Model import MultiModel
 import torch
 import torch.nn as nn
 from sklearn.cluster import KMeans
 from tqdm import tqdm  
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
 
 class Typiclust:
-    def __init__(self, backbone, initial_labeled_size, device, k_neighbors=20):
+    def __init__(self, initial_labeled_size, device, k_neighbors=20, n_components=50):
         """
         Initialize Typiclust with the specified hyperparameters and number of clusters.
         
         Args:
-            backbone: Model backbone to use
             initial_labeled_size: Size of initial labeled set |L0|
-            k_neighbors: Number of neighbors for typicality computation
             device: Device to run computations on
+            k_neighbors: Number of neighbors for typicality computation
+            n_components: Number of components for PCA dimensionality reduction
         """
-        self.hyperparameters = {'number of classes': 10}
         self.device = device
         self.k_neighbors = k_neighbors
-        self.model = MultiModel(backbone=backbone, hyperparameters=self.hyperparameters, load_pretrained=True)
-        self.model.to(self.device)
-        self.feature_extractor = nn.Sequential(*list(self.model.pretrained_model.children())[:-1])
-        
+        self.n_components = n_components
         # Track labeled set size and discovered clusters
         self.labeled_size = initial_labeled_size
         self.discovered_clusters = set()  # Keep track of clusters we've sampled from
@@ -31,8 +27,11 @@ class Typiclust:
     def extract_features(self, dataloader):
         """
         Extract features from the dataset using the backbone model.
+
+        Args:
+            dataloader: Dataloader for the dataset
         """
-        self.model.eval()
+        self.feature_extractor.eval()
         features, labels = [], []
 
         with torch.no_grad():
@@ -47,9 +46,12 @@ class Typiclust:
     def compute_typicality(self, features):
         """
         Compute typicality for each feature vector based on K-nearest neighbors.
+
+        Args:
+            features: Feature vectors
         """
         distances = torch.cdist(features, features)
-        _, indices = torch.topk(distances, k=self.k_neighbors + 1, largest=False)
+        _, indices = torch.topk(distances, k=self.k_neighbors+1, largest=False)
         
         typicality = []
         for i in range(len(features)):
@@ -69,24 +71,40 @@ class Typiclust:
         """
         # Number of clusters = |Li-1| + B
         n_clusters = self.labeled_size + budget
-        
+
+        # Perform PCA dimensionality reduction
+        # print("Initial component size:", features.shape)
+        pca = PCA(n_components=self.n_components)
+        reduced_features = pca.fit_transform(features.cpu().numpy())
+        # print("Final component size:", reduced_features.shape)
+
+        # Calculate and plot cumulative explained variance
+        # cumulative_explained_variance = pca.explained_variance_ratio_.cumsum()
+        # plot_explained_variance(cumulative_explained_variance)
+        # print("Cumulative explained variance:", cumulative_explained_variance)
+                
         kmeans = KMeans(n_clusters=n_clusters, random_state=42) # Set random state for reproducibility
         
         with tqdm(total=1, desc=f"KMeans Clustering (|L|={self.labeled_size}, B={budget})", leave=False) as pbar:
-            cluster_labels = kmeans.fit_predict(features.cpu().numpy())
+            cluster_labels = kmeans.fit_predict(reduced_features)
             pbar.update(1)
         return cluster_labels
 
-    def active_learning_iteration(self, budget, unlabeled_dataloader):
+    def active_learning_iteration(self, budget, unlabeled_dataloader, model):
         """
         Perform one iteration of active learning using TypiClust strategy.
         
         Args:
             budget: Number of samples to select (B)
+            unlabeled_dataloader: Dataloader for unlabeled data
+            model: Backbone model to extract features
             
         Returns:
             list: Indices of selected samples
         """
+        self.model = model
+        self.feature_extractor = nn.Sequential(*list(self.model.children())[:-1]).to(self.device) 
+
         # Extract features from unlabeled data
         features, _ = self.extract_features(unlabeled_dataloader)
         
@@ -197,49 +215,24 @@ def plot_top_n_typical_samples(selected_indices, dataset, images_per_row=10):
     # Close the figure to free memory
     plt.close(fig)
 
+def plot_explained_variance(explained_variance):
+    """
+    Plot the cumulative explained variance ratio.
+    Args:
+        explained_variance (numpy.ndarray): Cumulative explained variance ratio.
+    """
+    plt.figure(figsize=(8, 6))
+    plt.plot(range(1, len(explained_variance) + 1), explained_variance, marker='o', linestyle='--')    
+    plt.title("Cumulative Explained Variance Ratio")
+    plt.xlabel("Number of Principal Components")
+    plt.ylabel("Cumulative Explained Variance Ratio")
+    plt.grid()
+    plt.savefig("explained_variance.png")
 
 
-######################################## TESTING ########################################
-# from torch.utils.data import DataLoader, Subset
-# import torchvision
-# from torchvision.transforms import v2 as transforms
 
-# # Empty memory before start
-# if torch.cuda.is_available():
-#     torch.cuda.empty_cache()
 
-# hyperparameters = {
-#     'batch_size': 128,
-#     'learning_rate': 0.001,
-#     'num_epochs': 10,
-#     'num_workers': 2,
-#     'number of classes': 10,
-#     'backbone': 'resnet152',
-#     'device': 'cuda' if torch.cuda.is_available() else 'cpu',
-#     'number of samples': 5,
-# }
-
-# print("Device:", hyperparameters['device'])
-# print("Device number:", torch.cuda.current_device())
-# transform = transforms.Compose([
-#     transforms.ToImage(),
-#     transforms.ToDtype(torch.float32, scale=True),     # subtract 0.5 and divide by 0.5
-#     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-
-# train_set = torchvision.datasets.CIFAR10(
-#     root='./data', train=True, download=False, transform=transform)
-
-# unlabeled_dataloader = DataLoader(train_set, batch_size=hyperparameters['batch_size'], shuffle=True, num_workers=hyperparameters['num_workers'], drop_last=True)
-
-# # Initialize Typiclust
-# typiclust = Typiclust(hyperparameters, unlabeled_dataloader, initial_labeled_size=100)
-# budget = 10
-
-# for i in range(4):
-#     selected_indices = typiclust.active_learning_iteration(budget)
-#     print(f"Newly labeled samples: {selected_indices}, iteration {i+1}")
-#     plot_top_n_typical_samples(selected_indices, train_set)
-#     budget += 10
+######################################## BayesianTypiclust ########################################
 
 
 # from Typiclust import Typiclust
@@ -297,3 +290,49 @@ def plot_top_n_typical_samples(selected_indices, dataset, images_per_row=10):
 #                                     unlabeled_dataloader,
 #                                     acquisition_type='bald')
 # selected_indices, features = bayesian_typiclust.active_learning_iteration(budget=10)
+
+######################################## TESTING ########################################
+
+# from torch.utils.data import DataLoader
+# import torchvision
+# from torchvision.transforms import v2 as transforms
+# import torchvision.models as models
+
+# # Empty memory before start
+# if torch.cuda.is_available():
+#     torch.cuda.empty_cache()
+
+# hyperparameters = {
+#     'batch_size': 64,
+#     'learning_rate': 0.001,
+#     'num_epochs': 10,
+#     'num_workers': 2,
+#     'number of classes': 10,
+#     'backbone': 'resnet18',
+#     'device': 'cuda' if torch.cuda.is_available() else 'cpu',
+#     'number of samples': 5,
+# }
+
+# print("Device:", hyperparameters['device'])
+# print("Device number:", torch.cuda.current_device())
+
+# transform = transforms.Compose([
+#     transforms.ToImage(),
+#     transforms.ToDtype(torch.float32, scale=True),     # subtract 0.5 and divide by 0.5
+#     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
+# train_set = torchvision.datasets.CIFAR10(
+#     root='./data', train=True, download=False, transform=transform)
+
+# unlabeled_dataloader = DataLoader(train_set, batch_size=hyperparameters['batch_size'], shuffle=True, num_workers=hyperparameters['num_workers'], drop_last=False)
+# model = models.resnet18(weights=torchvision.models.ResNet18_Weights.DEFAULT)
+
+# # Initialize Typiclust
+# typiclust = Typiclust(initial_labeled_size=600, device=hyperparameters['device'], n_components=50)
+# budget = 100
+
+# for i in range(4):
+#     selected_indices = typiclust.active_learning_iteration(budget, unlabeled_dataloader, model)
+#     print(f"Newly labeled samples: {selected_indices}, iteration {i+1}")
+#     plot_top_n_typical_samples(selected_indices, train_set)
+#     break
