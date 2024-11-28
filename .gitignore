@@ -168,3 +168,5 @@ figs/
 *.err
 *.out
 TorchvisionModels/
+HPSearch/
+*.sh
