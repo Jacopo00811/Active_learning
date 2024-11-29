@@ -227,18 +227,26 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
         train_val_dataset, 
         unlabelled_indices_global
     )
+    # Create labelled subset (both train and val together) with relative indices from the full train/val dataset using global indices
+    labelled_dataset_relative = Subset(
+        train_val_dataset,
+        labelled_indices_global
+    )
 
     # Initialize labelled train and validation dataset loaders from relative subsets
     labelled_train_loader_relative = DataLoader(labelled_train_dataset_relative, batch_size=64, shuffle=True, drop_last=False, generator=generator)
     labelled_val_loader_relative = DataLoader(labelled_val_dataset_relative, batch_size=64, shuffle=False, drop_last=False, generator=generator)
     # Initialize unlabelled dataset loader from relative subset
     unlabelled_loader_relative = DataLoader(unlabelled_dataset_relative, batch_size=64, shuffle=False, drop_last=False, generator=generator)
+    # Initialize labelled dataset loader from relative subset
+    labelled_loader_relative = DataLoader(labelled_dataset_relative, batch_size=64, shuffle=False, drop_last=False, generator=generator)
+    
 
     # Define a map from unlabelled relative indices to unlabelled global indices
     # Used to move unlabelled AL-selected relative indices to equivalent global indices
     unlabelled_relative_to_global_indices_map = {relative_idx: global_idx for relative_idx, global_idx in enumerate(unlabelled_indices_global)}
 
-
+    
     # Initialize lists to store test accuracies and training + validation set sizes
     test_accuracies = []
     train_val_set_sizes = []
@@ -302,12 +310,13 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
                     label_batch_size=label_batch_size
                 )
             elif al_algorithm == "coreset":
+                
                 selected_unlabelled_relative_indices = Density_based_sampling_core_set(
                     device=device, 
                     model=model, 
                     unlabelled_loader=unlabelled_loader_relative, 
                     label_batch_size=label_batch_size,
-                    labeled_loader=labelled_train_loader_relative
+                    labeled_loader=labelled_loader_relative
                 )
             else:
                 raise ValueError("Unsupported strategy!")
@@ -337,6 +346,7 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
             # Update the labelled training and validation global indices with the selected global indices
             labelled_train_indices_global = np.concatenate([labelled_train_indices_global, selected_labelled_train_indices_global])
             labelled_val_indices_global = np.concatenate([labelled_val_indices_global, selected_labelled_val_indices_global])
+            labelled_indices_global = np.concatenate([labelled_train_indices_global, labelled_val_indices_global])
 
             # Create labelled training and validation subsets with relative indices from the full train/val dataset using updated (added) global indices
             labelled_train_dataset_relative = Subset(
@@ -352,12 +362,19 @@ def active_learning_loop(device, model, epochs, train_val_dataset, train_val_rat
                 train_val_dataset, 
                 unlabelled_indices_global
             )
+            # Create labelled subset (both train and val together) with relative indices from the full train/val dataset using updated global indices
+            labelled_dataset_relative = Subset(
+                train_val_dataset,
+                labelled_indices_global
+            )
 
             # Re-initialize labelled train and validation dataset loaders from updated relative subsets
             labelled_train_loader_relative = DataLoader(labelled_train_dataset_relative, batch_size=64, shuffle=True, drop_last=False, generator=generator)
             labelled_val_loader_relative = DataLoader(labelled_val_dataset_relative, batch_size=64, shuffle=False, drop_last=False, generator=generator)
             # Re-initialize unlabelled dataset loader from updated relative subset
             unlabelled_loader_relative = DataLoader(unlabelled_dataset_relative, batch_size=64, shuffle=False, drop_last=False, generator=generator)
+            # Re-initialize labelled dataset loader from updated relative subset
+            labelled_loader_relative = DataLoader(labelled_dataset_relative, batch_size=64, shuffle=False, drop_last=False, generator=generator)
         else:
             print("Initial Training on Labelled Data")
             al_algorithm_time_iter = "None"

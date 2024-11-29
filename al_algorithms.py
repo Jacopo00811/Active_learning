@@ -1,6 +1,11 @@
 import torch
 import numpy as np
 from sklearn.cluster import kmeans_plusplus
+from sklearn.decomposition import PCA
+from sklearn.metrics import mean_squared_error
+from sklearn.preprocessing import StandardScaler
+
+
 
 # Uncertainty Sampling (Least Confidence)
 def uncertainty_sampling_least_confidence(device, model, unlabelled_loader_relative, label_batch_size):
@@ -119,38 +124,32 @@ def Density_based_sampling_core_set(device, model, unlabelled_loader, label_batc
         model_not_last = torch.nn.Sequential(*(list(model.children())[:-1]))
         model_not_last.eval()
         embeddings = []
-        for _, (images,_) in enumerate(dataloader):
-            images = images.to(device)
-            penultimate_features = model_not_last(images).squeeze()
-            embeddings.extend(penultimate_features)
+        with torch.no_grad():
+            for _, (images,_) in enumerate(dataloader):
+                images = images.to(device)
+                penultimate_features = model_not_last(images).squeeze()
+                embeddings.append(penultimate_features.cpu().numpy())
+        embeddings = np.vstack(embeddings)
+        pca = PCA(n_components=50)        
+        normalizer = StandardScaler()
+        embeddings = normalizer.fit_transform(embeddings)
+        embeddings = pca.fit_transform(embeddings)
         return embeddings
     
-    labeled_embeddings = torch.vstack(get_embeddings(labeled_loader, model))
-    unlabelled_embeddings = torch.vstack(get_embeddings(unlabelled_loader, model))
+    labeled_embeddings = get_embeddings(labeled_loader, model)
+    unlabelled_embeddings = get_embeddings(unlabelled_loader, model)
+    labeled_embeddings = torch.from_numpy(labeled_embeddings).float()  # Convert to float32
+    unlabelled_embeddings = torch.from_numpy(unlabelled_embeddings).float()
+
 
     while len(labeled) < label_batch_size:
-        distances = torch.cdist(labeled_embeddings, unlabelled_embeddings,p=2)  #[label_size, unlabelled_size]
+        distances = torch.cdist(labeled_embeddings, unlabelled_embeddings,p=2)  #[label_size, unlabelled_size]        
         min_distances = torch.min(distances, dim=0)
         _, max_min_distances = torch.topk(min_distances.values,k=label_batch_size)
         for i in max_min_distances:
             if i not in labeled:
-                labeled.append(i)
+                labeled.append(i.item())
                 labeled_embeddings = torch.vstack([labeled_embeddings, unlabelled_embeddings[i]])
                 break
     return labeled
 
-
-## TODO: implement Uncertainty-Based Acquisition Functions : 
-#           Margin Sampling DONE
-#           Entropy Sampling DONE
-#           Least Confidence Sampling DONE
-#       Bayesian Uncertainty Sampling:
-#           BALD Sampling             
-#       Density-Based Methods
-#           Core-Set  DONE
-#      Hybrid Acquisition Functions
-#           BADGE DONE
-#      Batch Mode Active Learning
-#           batch-margin
-#           batch-BALD
-#           cluster-margin

@@ -11,7 +11,6 @@ from util_functions import *
 
 
 
-
 ### Begin of Parameters ###
 
 ## Simulation Parameters ##
@@ -216,7 +215,7 @@ for seed_idx, seed in enumerate(seeds):
     full_test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False, drop_last=False, generator=generator) # Both used for testing with all labels and for Train/AL iterations
 
     # Setup model
-    model = torchvision.models.resnet18(weights=None)
+    model =torchvision.models.resnet18(weights=torchvision.models.ResNet18_Weights.DEFAULT)    
     model.fc = nn.Linear(model.fc.in_features, 10)
     model = model.to(device)
     # print(f"Model: {model.__class__.__name__}")
