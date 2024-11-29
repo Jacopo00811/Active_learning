@@ -9,6 +9,14 @@ import time
 from al_algorithms import *
 from Typiclust import Typiclust
 
+hyperparameters = {
+    "batch_size": 32,
+    "learning_rate": 0.0001,
+    "gamma": 0.9,
+    "weight_decay": 1e-8,
+    "step_size": 1,
+}
+
 def format_time(seconds):
     """
     Format time in seconds to a human-readable string in format "Xh Ym Zs"
@@ -131,9 +139,11 @@ def train_model(device, model, epochs, train_loader, val_loader, generator=None)
     model.train()
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=hyperparameters['weight_decay'])
-
-    for epoch in range(epochs):
+    optimizer = optim.Adam(model.parameters(), lr=hyperparameters["learning_rate"], weight_decay=hyperparameters['weight_decay'])
+    scheduler = torch.optim.lr_scheduler.StepLR(
+            optimizer, step_size=hyperparameters["step_size"], gamma=hyperparameters["gamma"])    
+    
+    for epoch in range(epochs):    
         for images, labels in train_loader:
             images, labels = images.to(device), labels.to(device)
             optimizer.zero_grad()
@@ -147,6 +157,7 @@ def train_model(device, model, epochs, train_loader, val_loader, generator=None)
             model=model, 
             data_loader=val_loader
         )
+        scheduler.step()
         
         print(f"    Epoch {epoch+1}/{epochs}, Validation: {val_accuracy:.2f}% acc", end='\r') # Print epoch information, overwrite the line for each epoch
     print(end='\x1b[2K\r')  # Clear the line after training is finished
@@ -368,7 +379,7 @@ def active_learning_loop(
     # Used to move unlabelled AL-selected relative indices to equivalent global indices
     unlabelled_relative_to_global_indices_map = {relative_idx: global_idx for relative_idx, global_idx in enumerate(unlabelled_indices_global)}
 
-
+    
     # Initialize lists to store test accuracies and training + validation set sizes
     test_accuracies = []
     train_val_set_sizes = []
@@ -410,6 +421,68 @@ def active_learning_loop(
                     typiclust_obj=typiclust,
                     unlabelled_loader_relative=unlabelled_loader_relative,
                     budget=budget_query_size
+                )
+            elif al_algorithm == "margin":
+                selected_unlabelled_relative_indices = uncertainty_sampling_margin(
+                    device=device, 
+                    model=model, 
+                    unlabelled_loader=unlabelled_loader_relative, 
+                    label_batch_size=budget_query_size
+                )
+            elif al_algorithm == "entropy":
+                selected_unlabelled_relative_indices = uncertainty_sampling_entropy(
+                    device=device, 
+                    model=model, 
+                    unlabelled_loader=unlabelled_loader_relative, 
+                    label_batch_size=budget_query_size
+                )
+            elif al_algorithm == "badge":
+                selected_unlabelled_relative_indices = hybrid_sampling_badge(
+                    device=device, 
+                    model=model, 
+                    unlabelled_loader=unlabelled_loader_relative, 
+                    label_batch_size=budget_query_size,
+                    random_state=np_rng
+                )
+            elif al_algorithm == "coreset":
+                
+                selected_unlabelled_relative_indices = Density_based_sampling_core_set(
+                    device=device, 
+                    model=model, 
+                    unlabelled_loader=unlabelled_loader_relative, 
+                    label_batch_size=budget_query_size,
+                    labeled_loader=labelled_loader_relative,
+                    random_state=np_rng
+                )
+            elif al_algorithm == "margin":
+                selected_unlabelled_relative_indices = uncertainty_sampling_margin(
+                    device=device, 
+                    model=model, 
+                    unlabelled_loader=unlabelled_loader_relative, 
+                    label_batch_size=budget_query_size
+                )
+            elif al_algorithm == "entropy":
+                selected_unlabelled_relative_indices = uncertainty_sampling_entropy(
+                    device=device, 
+                    model=model, 
+                    unlabelled_loader=unlabelled_loader_relative, 
+                    label_batch_size=budget_query_size
+                )
+            elif al_algorithm == "badge":
+                selected_unlabelled_relative_indices = hybrid_sampling_badge(
+                    device=device, 
+                    model=model, 
+                    unlabelled_loader=unlabelled_loader_relative, 
+                    label_batch_size=budget_query_size
+                )
+            elif al_algorithm == "coreset":
+                
+                selected_unlabelled_relative_indices = Density_based_sampling_core_set(
+                    device=device, 
+                    model=model, 
+                    unlabelled_loader=unlabelled_loader_relative, 
+                    label_batch_size=budget_query_size,
+                    labeled_loader=labelled_loader_relative
                 )
             else:
                 raise ValueError("Unsupported strategy!")

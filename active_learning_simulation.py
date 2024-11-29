@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import time
 from util_functions import set_global_seed, full_training_set_baseline, active_learning_loop, format_time
 from analysis_functions import plot_al_performance_across_seeds
-
+import numpy as np
 
 
 
@@ -24,11 +24,11 @@ relative_save_folder = "./run_results" # Define relative save folder
 ## Model Hyperparameters ##
 pretrained_weights = True # Enable to use pretrained weights for the model
 TRAIN_VAL_RATIO = 0.8 # Ratio of training data to use for training (remaining is used for validation)
-EPOCHS = 10 # Number of epochs to train the model for each budget size
-BATCH_SIZE = 64 # Batch size for data loaders
+EPOCHS = 8 # Number of epochs to train the model for each budget size
+BATCH_SIZE = 32 # Batch size for data loaders
 
 ## Seed and Baseline Parameters ##
-seeds = [0, 1] # Set random seeds to decrease uncertainty
+seeds = [0,1,2,3,4] # Set random seeds to decrease uncertainty
 train_full_dataset_baseline = True # Enable to run the model with all labelled data to establish maximum performance baseline
 
 ## Active Learning Algorithm Parameters ##
@@ -36,16 +36,18 @@ AL_ALGORITHMS = {
     'random': {"active": True},
     'uncertainty': {"active": True},
     'typiclust': {"active": True},
-    'margin': {"active": False}, # Example additional algorithm, not implemented yet
-    'entropy': {"active": False} # Example additional algorithm, not implemented yet
+    'margin': {"active": True}, 
+    'entropy': {"active": True},
+    'badge': {"active": True},
+    'coreset': {"active": True},
 }
 
 ## Budget Strategy Parameters ##
 BUDGET_STRATEGIES = {
     1: {"active": True, "initial_size": 1000, "query_size": 250, "num_al_iterations": 10}, # Final size: 3500
     2: {"active": True, "initial_size": 4000, "query_size": 500, "num_al_iterations": 10}, # Final size: 9000
-    3: {"active": False, "initial_size": 10000, "query_size": 1000, "num_al_iterations": 10}, # Final size: 20000
-    4: {"active": False, "initial_size": 22000, "query_size": 2000, "num_al_iterations": 10}, # Final size: 42000 (almost full training/validation set size of 50000)
+    3: {"active": True, "initial_size": 10000, "query_size": 1000, "num_al_iterations": 10}, # Final size: 20000
+    4: {"active": True, "initial_size": 22000, "query_size": 2000, "num_al_iterations": 10}, # Final size: 42000 (almost full training/validation set size of 50000)
 }
 
 ### End of Parameters ###

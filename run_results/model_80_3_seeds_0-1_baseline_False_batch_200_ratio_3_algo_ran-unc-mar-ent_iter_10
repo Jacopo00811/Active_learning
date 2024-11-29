@@ -1,0 +1,326 @@
+{
+    "config": {
+        "simulation": {
+            "device": "cuda",
+            "seeds": [
+                0,
+                1
+            ],
+            "train_full_dataset_baseline": false,
+            "save_results": true,
+            "relative_save_folder": "./run_results",
+            "print_settings": {
+                "al_iterations": true,
+                "epochs": false
+            }
+        },
+        "model": {
+            "train_val_ratio": 0.8,
+            "epochs": 3
+        },
+        "active_learning": {
+            "train_al_iterations": 10,
+            "al_algorithms": [
+                "random",
+                "uncertainty",
+                "margin",
+                "entropy"
+            ]
+        },
+        "budget": {
+            "ratio_batch_to_init_dataset": 3,
+            "selected_strategies": {
+                "1": {
+                    "batch_size": 200,
+                    "initial_size": 600,
+                    "final_size": 2600
+                }
+            }
+        }
+    },
+    "runtimes": {
+        "simulation": 995.596125125885,
+        "seeds": {
+            "seed_0": 499.32616090774536,
+            "seed_1": 496.26994705200195
+        },
+        "full_dataset_baselines": {
+            "seed_0_full_dataset_baseline": null,
+            "seed_1_full_dataset_baseline": null
+        },
+        "budget_strategies": {
+            "seed_0_budget_1": 498.73621940612793,
+            "seed_1_budget_1": 496.0752708911896
+        },
+        "training_and_al_algorithms": {
+            "seed_0_budget_1_random": {
+                "training": 15.154073715209961,
+                "al_algorithm": 0.043567657470703125
+            },
+            "seed_0_budget_1_uncertainty": {
+                "training": 14.89766788482666,
+                "al_algorithm": 107.2083568572998
+            },
+            "seed_0_budget_1_margin": {
+                "training": 15.11130952835083,
+                "al_algorithm": 115.77307605743408
+            },
+            "seed_0_budget_1_entropy": {
+                "training": 15.07785677909851,
+                "al_algorithm": 112.69239497184753
+            },
+            "seed_1_budget_1_random": {
+                "training": 14.751526117324829,
+                "al_algorithm": 0.04480409622192383
+            },
+            "seed_1_budget_1_uncertainty": {
+                "training": 14.961000204086304,
+                "al_algorithm": 106.11926007270813
+            },
+            "seed_1_budget_1_margin": {
+                "training": 15.134320497512817,
+                "al_algorithm": 114.22990155220032
+            },
+            "seed_1_budget_1_entropy": {
+                "training": 15.141206979751587,
+                "al_algorithm": 113.32295632362366
+            }
+        }
+    },
+    "results": {
+        "seed_0": {
+            "full_dataset_baseline": null,
+            "budget_strategy_1": {
+                "random": {
+                    "train_val_set_sizes": [
+                        600,
+                        800,
+                        1000,
+                        1200,
+                        1400,
+                        1600,
+                        1800,
+                        2000,
+                        2200,
+                        2400,
+                        2600
+                    ],
+                    "test_accuracies": [
+                        21.27,
+                        22.39,
+                        29.24,
+                        33.28,
+                        29.56,
+                        29.56,
+                        32.99,
+                        34.21,
+                        38.04,
+                        34.15,
+                        37.0
+                    ]
+                },
+                "uncertainty": {
+                    "train_val_set_sizes": [
+                        600,
+                        800,
+                        1000,
+                        1200,
+                        1400,
+                        1600,
+                        1800,
+                        2000,
+                        2200,
+                        2400,
+                        2600
+                    ],
+                    "test_accuracies": [
+                        16.47,
+                        23.06,
+                        28.21,
+                        28.16,
+                        30.89,
+                        35.78,
+                        36.24,
+                        36.78,
+                        37.4,
+                        32.31,
+                        36.03
+                    ]
+                },
+                "margin": {
+                    "train_val_set_sizes": [
+                        600,
+                        800,
+                        1000,
+                        1200,
+                        1400,
+                        1600,
+                        1800,
+                        2000,
+                        2200,
+                        2400,
+                        2600
+                    ],
+                    "test_accuracies": [
+                        21.8,
+                        22.11,
+                        26.23,
+                        31.17,
+                        25.08,
+                        27.31,
+                        33.31,
+                        31.3,
+                        31.89,
+                        32.4,
+                        35.13
+                    ]
+                },
+                "entropy": {
+                    "train_val_set_sizes": [
+                        600,
+                        800,
+                        1000,
+                        1200,
+                        1400,
+                        1600,
+                        1800,
+                        2000,
+                        2200,
+                        2400,
+                        2600
+                    ],
+                    "test_accuracies": [
+                        21.1,
+                        22.66,
+                        24.09,
+                        26.7,
+                        32.75,
+                        32.78,
+                        30.7,
+                        32.62,
+                        36.38,
+                        36.61,
+                        34.55
+                    ]
+                }
+            }
+        },
+        "seed_1": {
+            "full_dataset_baseline": null,
+            "budget_strategy_1": {
+                "random": {
+                    "train_val_set_sizes": [
+                        600,
+                        800,
+                        1000,
+                        1200,
+                        1400,
+                        1600,
+                        1800,
+                        2000,
+                        2200,
+                        2400,
+                        2600
+                    ],
+                    "test_accuracies": [
+                        19.67,
+                        20.82,
+                        29.36,
+                        32.63,
+                        32.21,
+                        31.66,
+                        29.6,
+                        36.55,
+                        34.74,
+                        38.01,
+                        33.17
+                    ]
+                },
+                "uncertainty": {
+                    "train_val_set_sizes": [
+                        600,
+                        800,
+                        1000,
+                        1200,
+                        1400,
+                        1600,
+                        1800,
+                        2000,
+                        2200,
+                        2400,
+                        2600
+                    ],
+                    "test_accuracies": [
+                        17.29,
+                        22.77,
+                        25.49,
+                        29.61,
+                        28.23,
+                        33.25,
+                        28.94,
+                        32.77,
+                        33.44,
+                        32.46,
+                        31.49
+                    ]
+                },
+                "margin": {
+                    "train_val_set_sizes": [
+                        600,
+                        800,
+                        1000,
+                        1200,
+                        1400,
+                        1600,
+                        1800,
+                        2000,
+                        2200,
+                        2400,
+                        2600
+                    ],
+                    "test_accuracies": [
+                        21.81,
+                        22.38,
+                        25.74,
+                        27.97,
+                        30.7,
+                        30.64,
+                        32.25,
+                        34.33,
+                        26.18,
+                        37.33,
+                        32.91
+                    ]
+                },
+                "entropy": {
+                    "train_val_set_sizes": [
+                        600,
+                        800,
+                        1000,
+                        1200,
+                        1400,
+                        1600,
+                        1800,
+                        2000,
+                        2200,
+                        2400,
+                        2600
+                    ],
+                    "test_accuracies": [
+                        23.17,
+                        16.29,
+                        21.48,
+                        26.49,
+                        32.29,
+                        29.4,
+                        32.27,
+                        30.32,
+                        32.17,
+                        33.95,
+                        27.4
+                    ]
+                }
+            }
+        }
+    }
+}
