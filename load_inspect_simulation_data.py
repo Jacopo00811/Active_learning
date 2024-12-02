@@ -3,6 +3,7 @@ import os
 import matplotlib.pyplot as plt
 from util_functions import format_time
 from analysis_functions import plot_al_performance_across_seeds
+import numpy as np
 
 
 ## TESTING RESULTS ##
@@ -140,6 +141,123 @@ if len(seeds) > 1:
         plt.show()
 else:
     print("Only one seed, no need to plot average peformance across all seeds.")
+
+
+
+
+
+
+def average_al_results(results, al_algorithms, budget_strategies, seeds):
+    averaged_results = {}
+    
+    for algo in al_algorithms:
+        # Initialize storage for final algorithm results
+        algo_results = {
+            'mean_train_val_sizes': [],
+            'mean_test_accuracies': [],
+            'std_test_accuracies': []
+        }
+
+        mean_train_val_sizes = []
+        mean_test_accuracies = []
+        std_test_accuracies = []
+
+        # Store intermediate results for each budget strategy
+        strategy_level_results = []
+        
+        # First, process each budget strategy separately
+        for strategy in budget_strategies:
+            # For this strategy, collect and average across all seeds
+            seed_train_val_sizes = []
+            seed_test_accuracies = []
+            
+            # Gather results from all seeds for current strategy
+            for seed in seeds:
+                seed_name = f"seed_{seed}"
+                train_val_set_sizes = simulation_data["results"][seed_name][f"budget_strategy_{strategy}"][algo]["train_val_set_sizes"]
+                test_accuracies = simulation_data["results"][seed_name][f"budget_strategy_{strategy}"][algo]["test_accuracies"]
+                seed_train_val_sizes.append(train_val_set_sizes)
+                seed_test_accuracies.append(test_accuracies)
+            
+            # Convert to numpy arrays for easier computation
+            strategy_mean_sizes = np.mean(seed_train_val_sizes, axis=0)
+            strategy_mean_accuracies = np.mean(seed_test_accuracies, axis=0)
+            strategy_std_accuracies = np.std(seed_test_accuracies, axis=0)
+            print(strategy_mean_sizes)
+            print(strategy_mean_accuracies)
+            print(strategy_std_accuracies)
+            
+            mean_train_val_sizes.append(strategy_mean_sizes)
+            mean_test_accuracies.append(strategy_mean_accuracies)
+            std_test_accuracies.append(strategy_std_accuracies)
+        
+        mean_train_val_sizes = np.concatenate(mean_train_val_sizes, axis=0)
+        mean_test_accuracies = np.concatenate(mean_test_accuracies, axis=0)
+        std_test_accuracies = np.concatenate(std_test_accuracies, axis=0)
+
+        print(mean_train_val_sizes)
+        print(mean_test_accuracies)
+        print(std_test_accuracies)
+        print(algo, "\n\n")
+        
+        # Calculate final statistics across strategies
+        algo_results['mean_train_val_sizes'] = mean_train_val_sizes
+        algo_results['mean_test_accuracies'] = mean_test_accuracies
+        # Combine standard deviations appropriately
+        algo_results['std_test_accuracies'] = std_test_accuracies
+        
+        averaged_results[algo] = algo_results
+    
+    if simulation_data["config"]["seed_and_baseline"]["train_full_dataset_baseline"]:
+        baseline_all_accuracies = []
+        for seed in seeds:
+            seed_name = f"seed_{seed}"
+            baseline_test_accuracy = results["results"][seed_name]["full_dataset_baseline"]
+            baseline_all_accuracies.append(baseline_test_accuracy)
+        
+        baseline_mean_accuracy = np.mean(baseline_all_accuracies)
+        baseline_std_accuracies = np.std(baseline_all_accuracies)
+
+        averaged_results["baseline"] = {
+            'baseline_mean_accuracy': baseline_mean_accuracy,
+            'baseline_std_accuracy': baseline_std_accuracies
+        }
+
+    return averaged_results
+
+# Example usage:
+
+averaged_results = average_al_results(simulation_data, al_algorithms, budget_strategies, seeds)
+
+# Plot with confidence intervals:
+plt.figure()
+for algo in al_algorithms:
+    algo_performance = averaged_results[algo]
+    mean_acc = algo_performance['mean_test_accuracies']
+    std_acc = algo_performance['std_test_accuracies']
+    mean_sizes = algo_performance['mean_train_val_sizes']
+    plt.plot(mean_sizes, mean_acc, '-o', label=algo, markersize=6, linewidth=2)
+    plt.fill_between(mean_sizes, 
+                    mean_acc - 2 * std_acc,
+                    mean_acc + 2 * std_acc,
+                    alpha=0.3)
+
+# Add vertical lines for initial sizes
+for strategy_id, strategy_config in BUDGET_STRATEGIES.items():
+    initial_size = strategy_config['initial_size'] 
+    if strategy_config['active']:
+        # Adding a vertical line with a light gray color and dashed style
+        plt.axvline(x=initial_size, color='gray', linestyle='--', alpha=0.5)
+    # Optionally add a text label above the line
+    # plt.text(initial_size, plt.ylim()[1], f'Initial Size {initial_size}', rotation=90, va='bottom', ha='right')    
+
+if simulation_data["config"]["seed_and_baseline"]["train_full_dataset_baseline"]:
+    baseline_mean_accuracy = averaged_results["baseline"]["baseline_mean_accuracy"]
+    plt.axhline(y=baseline_mean_accuracy, color='red', linestyle='-', alpha=0.5)
+
+plt.legend()
+plt.show()
+
 
 """
 POTENTIAL ANALYSIS TOOLS WE COULD IMPLEMENT:
