@@ -21,7 +21,7 @@
 # -- Error File --
 #BSUB -e Output_%J.err
 # -- estimated wall clock time (execution time): hh:mm -- 
-#BSUB -W :00 
+#BSUB -W 24:00 
 # -- Number of cores requested -- 
 #BSUB -n 4 
 # -- Specify the distribution of the cores: on a single node --
@@ -34,5 +34,5 @@ module load python3/3.12.4
 source "/zhome/69/0/168594/Documents/Deep Learning/Project/DeepLearningEnv/bin/activate"
 # here call torchrun
 #torchrun --standalone --nproc_per_node=1 
-python python "/zhome/69/0/168594/Documents/Deep Learning/Project/Active_learning/active_learning_simulation.py"
+python "/zhome/69/0/168594/Documents/Deep Learning/Project/Active_learning/active_learning_simulation.py"
 

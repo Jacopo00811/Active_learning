@@ -14,7 +14,7 @@ hyperparameters = {
     "learning_rate": 0.0001,
     "gamma": 0.9,
     "weight_decay": 1e-8,
-    "step_size": 1,
+    "step_size": 5,
 }
 
 def format_time(seconds):

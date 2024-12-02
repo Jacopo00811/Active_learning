@@ -47,7 +47,7 @@ BUDGET_STRATEGIES = {
     1: {"active": True, "initial_size": 1000, "query_size": 250, "num_al_iterations": 10}, # Final size: 3500
     2: {"active": True, "initial_size": 4000, "query_size": 500, "num_al_iterations": 10}, # Final size: 9000
     3: {"active": True, "initial_size": 10000, "query_size": 1000, "num_al_iterations": 10}, # Final size: 20000
-    4: {"active": True, "initial_size": 22000, "query_size": 2000, "num_al_iterations": 10}, # Final size: 42000 (almost full training/validation set size of 50000)
+    4: {"active": False, "initial_size": 22000, "query_size": 2000, "num_al_iterations": 10}, # Final size: 42000 (almost full training/validation set size of 50000)
 }
 
 ### End of Parameters ###

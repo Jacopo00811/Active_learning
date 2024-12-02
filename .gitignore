@@ -170,3 +170,4 @@ figs/
 TorchvisionModels/
 HpSearch/
 *.sh
+test.py

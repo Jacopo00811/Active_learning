@@ -93,6 +93,7 @@ def hybrid_sampling_badge(device, model, unlabelled_loader, label_batch_size, ra
         TODO make kmeansPlusPlus faster maybe by using pca to extract features??
         results with 200 components is 0.63852435
         results with 500 components is 0.8147309
+        results with 800 components is 0.88417363
         """
         not_last_model = torch.nn.Sequential(*(list(model.children())[:-1]))
         model.eval()
@@ -116,11 +117,11 @@ def hybrid_sampling_badge(device, model, unlabelled_loader, label_batch_size, ra
                 embeddings.extend(batch_embed.cpu())
                 indices.extend(list(range(idx * images.size(0), (idx * images.size(0)) + images.size(0))))
 
-        # pca = PCA(n_components=500, random_state=random_state)
-        # normalizer = StandardScaler()
-        # embeddings = np.vstack(embeddings)
-        # embeddings = normalizer.fit_transform(embeddings)
-        # embeddings = pca.fit_transform(embeddings)
+        pca = PCA(n_components=800, random_state=random_state)
+        normalizer = StandardScaler()
+        embeddings = np.vstack(embeddings)
+        embeddings = normalizer.fit_transform(embeddings)
+        embeddings = pca.fit_transform(embeddings)
         
         # print(embeddings.shape)
         # print(np.cumsum(pca.explained_variance_ratio_))
@@ -154,11 +155,12 @@ def Density_based_sampling_core_set(device, model, unlabelled_loader, label_batc
     
     labeled_embeddings = get_embeddings(labeled_loader, model)
     unlabelled_embeddings = get_embeddings(unlabelled_loader, model)
-    labeled_embeddings = torch.from_numpy(labeled_embeddings).float()  # Convert to float32
-    unlabelled_embeddings = torch.from_numpy(unlabelled_embeddings).float()
-
+    labeled_embeddings = torch.from_numpy(labeled_embeddings).float().to(device=device)  # Convert to float32
+    unlabelled_embeddings = torch.from_numpy(unlabelled_embeddings).float().to(device=device)  # Convert to float32
 
     while len(labeled) < label_batch_size:
+        
+
         distances = torch.cdist(labeled_embeddings, unlabelled_embeddings,p=2)  #[label_size, unlabelled_size]        
         min_distances = torch.min(distances, dim=0)
         _, max_min_distances = torch.topk(min_distances.values,k=label_batch_size)
