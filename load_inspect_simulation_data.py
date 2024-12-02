@@ -74,19 +74,23 @@ model_name = "ResNet-18"
 pretrained_weights = True
 relative_save_folder = "./run_results"
 TRAIN_VAL_RATIO = 0.8
-EPOCHS = 10
-BATCH_SIZE = 64
-seeds = [0, 1]
+EPOCHS = 8
+BATCH_SIZE = 32
+seeds = [0, 1, 2, 3, 4]
 train_full_dataset_baseline = True
 AL_ALGORITHMS = {
     'random': {"active": True},
     'uncertainty': {"active": True},
-    'typiclust': {"active": False}
+    'typiclust': {"active": True},
+    'margin': {"active": True}, 
+    'entropy': {"active": True},
+    'badge': {"active": True},
+    'coreset': {"active": True},
 }
 BUDGET_STRATEGIES = {
     1: {"active": True, "initial_size": 1000, "query_size": 250, "num_al_iterations": 10},
     2: {"active": True, "initial_size": 4000, "query_size": 500, "num_al_iterations": 10},
-    3: {"active": False, "initial_size": 10000, "query_size": 1000, "num_al_iterations": 10},
+    3: {"active": True, "initial_size": 10000, "query_size": 1000, "num_al_iterations": 10},
     4: {"active": False, "initial_size": 22000, "query_size": 2000, "num_al_iterations": 10},
 }
 # Calculated from the above configuration
@@ -126,7 +130,7 @@ if simulation_data is not None:
 else:
     print("No simulation data loaded")
 
-
+"""
 print("\n\n\nAnalyzing simulation data...")
 simulation_time = runtimes["simulation"]
 print(f"Total Runtime: {format_time(simulation_time)}")
@@ -141,7 +145,7 @@ if len(seeds) > 1:
         plt.show()
 else:
     print("Only one seed, no need to plot average peformance across all seeds.")
-
+"""
 
 
 
@@ -230,33 +234,44 @@ def average_al_results(results, al_algorithms, budget_strategies, seeds):
 averaged_results = average_al_results(simulation_data, al_algorithms, budget_strategies, seeds)
 
 # Plot with confidence intervals:
-plt.figure()
-for algo in al_algorithms:
-    algo_performance = averaged_results[algo]
-    mean_acc = algo_performance['mean_test_accuracies']
-    std_acc = algo_performance['std_test_accuracies']
-    mean_sizes = algo_performance['mean_train_val_sizes']
-    plt.plot(mean_sizes, mean_acc, '-o', label=algo, markersize=6, linewidth=2)
-    plt.fill_between(mean_sizes, 
-                    mean_acc - 2 * std_acc,
-                    mean_acc + 2 * std_acc,
-                    alpha=0.3)
+def plot_sim_results(averaged_results, al_algorithms, BUDGET_STRATEGIES, simulation_data, enable_std=True):
+    plt.figure()
+    for algo in al_algorithms:
+        if algo == "random":
+            marker='o'
+        else:
+            marker='x'
+            
 
-# Add vertical lines for initial sizes
-for strategy_id, strategy_config in BUDGET_STRATEGIES.items():
-    initial_size = strategy_config['initial_size'] 
-    if strategy_config['active']:
-        # Adding a vertical line with a light gray color and dashed style
-        plt.axvline(x=initial_size, color='gray', linestyle='--', alpha=0.5)
-    # Optionally add a text label above the line
-    # plt.text(initial_size, plt.ylim()[1], f'Initial Size {initial_size}', rotation=90, va='bottom', ha='right')    
+        algo_performance = averaged_results[algo]
+        mean_acc = algo_performance['mean_test_accuracies']
+        std_acc = algo_performance['std_test_accuracies']
+        mean_sizes = algo_performance['mean_train_val_sizes']
+        plt.plot(mean_sizes, mean_acc, marker=marker, label=algo, markersize=6, linewidth=1)
+        if enable_std:
+            plt.fill_between(mean_sizes, 
+                        mean_acc - 2 * std_acc,
+                        mean_acc + 2 * std_acc,
+                        alpha=0.3)
 
-if simulation_data["config"]["seed_and_baseline"]["train_full_dataset_baseline"]:
-    baseline_mean_accuracy = averaged_results["baseline"]["baseline_mean_accuracy"]
-    plt.axhline(y=baseline_mean_accuracy, color='red', linestyle='-', alpha=0.5)
+    # Add vertical lines for initial sizes
+    for strategy_id, strategy_config in BUDGET_STRATEGIES.items():
+        initial_size = strategy_config['initial_size'] 
+        if strategy_config['active']:
+            # Adding a vertical line with a light gray color and dashed style
+            plt.axvline(x=initial_size, color='gray', linestyle='--', alpha=0.5)
+        # Optionally add a text label above the line
+        # plt.text(initial_size, plt.ylim()[1], f'Initial Size {initial_size}', rotation=90, va='bottom', ha='right')    
 
-plt.legend()
-plt.show()
+    if simulation_data["config"]["seed_and_baseline"]["train_full_dataset_baseline"]:
+        baseline_mean_accuracy = averaged_results["baseline"]["baseline_mean_accuracy"]
+        plt.axhline(y=baseline_mean_accuracy, color='red', linestyle='-', alpha=0.5)
+
+    plt.legend()
+    plt.show()
+
+plot_sim_results(averaged_results, al_algorithms, BUDGET_STRATEGIES, simulation_data, enable_std=False)
+
 
 
 """
