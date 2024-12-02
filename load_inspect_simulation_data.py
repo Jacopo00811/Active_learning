@@ -2,8 +2,8 @@ import json
 import os
 import matplotlib.pyplot as plt
 from util_functions import format_time
-from analysis_functions import plot_al_performance_across_seeds
 import numpy as np
+import pandas as pd
 
 
 ## TESTING RESULTS ##
@@ -130,147 +130,149 @@ if simulation_data is not None:
 else:
     print("No simulation data loaded")
 
-"""
-print("\n\n\nAnalyzing simulation data...")
-simulation_time = runtimes["simulation"]
-print(f"Total Runtime: {format_time(simulation_time)}")
-if len(seeds) > 1:
-    print("\nPlotting average AL-algorithm performances for each budget strategy across all seeds...")
-    for strategy in budget_strategies:
-        fig = plot_al_performance_across_seeds(
-            simulation_data,
-            strategy,
-            al_algorithms
-        )
-        plt.show()
-else:
-    print("Only one seed, no need to plot average peformance across all seeds.")
-"""
 
 
-
-
-
-def average_al_results(results, al_algorithms, budget_strategies, seeds):
+def average_strategy_results(results, al_algorithms, budget_strategies, seeds):
     averaged_results = {}
     
-    for algo in al_algorithms:
-        # Initialize storage for final algorithm results
-        algo_results = {
-            'mean_train_val_sizes': [],
-            'mean_test_accuracies': [],
-            'std_test_accuracies': []
+    baseline_mean_accuracy = []
+    for seed in seeds:
+        baseline_accuracy = results['results'][f'seed_{seed}']["full_dataset_baseline"]
+        baseline_mean_accuracy.append(baseline_accuracy)
+
+    averaged_results['baseline'] = np.mean(baseline_mean_accuracy)
+
+    for strategy in [strategy for strategy, config in budget_strategies.items() if config['active']]:
+
+        train_val_set_sizes = results['results'][f'seed_{seeds[0]}'][f"budget_strategy_{strategy}"]['random']['train_val_set_sizes']
+        averaged_results[f"budget_strategy_{strategy}"] = {
+            'train_val_set_sizes': train_val_set_sizes
         }
 
-        mean_train_val_sizes = []
-        mean_test_accuracies = []
-        std_test_accuracies = []
-
-        # Store intermediate results for each budget strategy
-        strategy_level_results = []
-        
-        # First, process each budget strategy separately
-        for strategy in budget_strategies:
+        for al_algorithm in al_algorithms:
             # For this strategy, collect and average across all seeds
-            seed_train_val_sizes = []
             seed_test_accuracies = []
             
             # Gather results from all seeds for current strategy
             for seed in seeds:
                 seed_name = f"seed_{seed}"
-                train_val_set_sizes = simulation_data["results"][seed_name][f"budget_strategy_{strategy}"][algo]["train_val_set_sizes"]
-                test_accuracies = simulation_data["results"][seed_name][f"budget_strategy_{strategy}"][algo]["test_accuracies"]
-                seed_train_val_sizes.append(train_val_set_sizes)
+                test_accuracies = simulation_data["results"][seed_name][f"budget_strategy_{strategy}"][al_algorithm]["test_accuracies"]
                 seed_test_accuracies.append(test_accuracies)
             
             # Convert to numpy arrays for easier computation
-            strategy_mean_sizes = np.mean(seed_train_val_sizes, axis=0)
-            strategy_mean_accuracies = np.mean(seed_test_accuracies, axis=0)
-            strategy_std_accuracies = np.std(seed_test_accuracies, axis=0)
-            print(strategy_mean_sizes)
-            print(strategy_mean_accuracies)
-            print(strategy_std_accuracies)
+            mean_accuracies = np.mean(seed_test_accuracies, axis=0)
+            std_accuracies = np.std(seed_test_accuracies, axis=0)
             
-            mean_train_val_sizes.append(strategy_mean_sizes)
-            mean_test_accuracies.append(strategy_mean_accuracies)
-            std_test_accuracies.append(strategy_std_accuracies)
-        
-        mean_train_val_sizes = np.concatenate(mean_train_val_sizes, axis=0)
-        mean_test_accuracies = np.concatenate(mean_test_accuracies, axis=0)
-        std_test_accuracies = np.concatenate(std_test_accuracies, axis=0)
-
-        print(mean_train_val_sizes)
-        print(mean_test_accuracies)
-        print(std_test_accuracies)
-        print(algo, "\n\n")
-        
-        # Calculate final statistics across strategies
-        algo_results['mean_train_val_sizes'] = mean_train_val_sizes
-        algo_results['mean_test_accuracies'] = mean_test_accuracies
-        # Combine standard deviations appropriately
-        algo_results['std_test_accuracies'] = std_test_accuracies
-        
-        averaged_results[algo] = algo_results
-    
-    if simulation_data["config"]["seed_and_baseline"]["train_full_dataset_baseline"]:
-        baseline_all_accuracies = []
-        for seed in seeds:
-            seed_name = f"seed_{seed}"
-            baseline_test_accuracy = results["results"][seed_name]["full_dataset_baseline"]
-            baseline_all_accuracies.append(baseline_test_accuracy)
-        
-        baseline_mean_accuracy = np.mean(baseline_all_accuracies)
-        baseline_std_accuracies = np.std(baseline_all_accuracies)
-
-        averaged_results["baseline"] = {
-            'baseline_mean_accuracy': baseline_mean_accuracy,
-            'baseline_std_accuracy': baseline_std_accuracies
-        }
-
+            averaged_results[f"budget_strategy_{strategy}"][al_algorithm] = {
+                'mean_accuracies': mean_accuracies,
+                'std_accuracies': std_accuracies
+            }
     return averaged_results
 
-# Example usage:
+def al_improvements_over_random(averaged_results):
+    # Get list of strategies and algorithms to compare
+    strategies = [strategy for strategy in averaged_results if strategy != 'baseline']
+    algorithms_to_compare = [algo for algo in al_algorithms if algo != 'random']
 
-averaged_results = average_al_results(simulation_data, al_algorithms, budget_strategies, seeds)
+    # Create DataFrame with strategies as index and algorithms as columns
+    df = pd.DataFrame(index=strategies, columns=algorithms_to_compare)
 
-# Plot with confidence intervals:
-def plot_sim_results(averaged_results, al_algorithms, BUDGET_STRATEGIES, simulation_data, enable_std=True):
-    plt.figure()
-    for algo in al_algorithms:
-        if algo == "random":
-            marker='o'
-        else:
-            marker='x'
+    # For each strategy
+    for strategy in strategies:
+
+        # Get random accuracies for this strategy
+        random_mean_accuracies = averaged_results[strategy]['random']['mean_accuracies']
+        
+        # For each algorithm we want to compare
+        for algo in algorithms_to_compare:
+            # Store improvements for this algorithm
+            improvements = []
             
+            # Calculate improvement for each iteration
+            for i, random_accuracy in enumerate(random_mean_accuracies):
+                if i == 0:
+                    continue
 
-        algo_performance = averaged_results[algo]
-        mean_acc = algo_performance['mean_test_accuracies']
-        std_acc = algo_performance['std_test_accuracies']
-        mean_sizes = algo_performance['mean_train_val_sizes']
-        plt.plot(mean_sizes, mean_acc, marker=marker, label=algo, markersize=6, linewidth=1)
-        if enable_std:
-            plt.fill_between(mean_sizes, 
-                        mean_acc - 2 * std_acc,
-                        mean_acc + 2 * std_acc,
-                        alpha=0.3)
+                algo_accuracy = averaged_results[strategy][algo]['mean_accuracies'][i]
+                improvement = ((algo_accuracy - random_accuracy) / random_accuracy) * 100
+                improvements.append(improvement)
 
-    # Add vertical lines for initial sizes
-    for strategy_id, strategy_config in BUDGET_STRATEGIES.items():
-        initial_size = strategy_config['initial_size'] 
-        if strategy_config['active']:
-            # Adding a vertical line with a light gray color and dashed style
-            plt.axvline(x=initial_size, color='gray', linestyle='--', alpha=0.5)
-        # Optionally add a text label above the line
-        # plt.text(initial_size, plt.ylim()[1], f'Initial Size {initial_size}', rotation=90, va='bottom', ha='right')    
+                if i == 0:
+                    print(random_accuracy, algo_accuracy)
+            
+            # Calculate mean improvement and assign to DataFrame
+            # Use .loc to explicitly locate the cell we want to update
+            df.loc[strategy, algo] = f"{np.mean(improvements):.2f}%"
 
-    if simulation_data["config"]["seed_and_baseline"]["train_full_dataset_baseline"]:
-        baseline_mean_accuracy = averaged_results["baseline"]["baseline_mean_accuracy"]
-        plt.axhline(y=baseline_mean_accuracy, color='red', linestyle='-', alpha=0.5)
+    return df
 
+def plot_sim_results(averaged_results, al_algorithms, strategies, enable_std=True, enable_baseline=True, enable_initial_lines=True):
+
+    plt.figure()
+
+    algo_colour_map = {
+        'random': "black",
+        'uncertainty': "blue",
+        'typiclust': "green",
+        'margin': "purple",
+        'entropy': "orange",
+        'badge': "brown",
+        'coreset': "pink",
+    }
+
+    labelled_algos = set()
+
+    for strategy in strategies:
+
+        strategy_sizes = averaged_results[strategy]['train_val_set_sizes']
+
+        for algo in al_algorithms:
+            algo_mean_accuracies = averaged_results[strategy][algo]['mean_accuracies']
+            algo_std_accuracies = averaged_results[strategy][algo]['std_accuracies']
+            
+            if algo in labelled_algos:
+                label = None
+            else:
+                label = algo
+                labelled_algos.add(algo)
+
+            plt.plot(strategy_sizes, algo_mean_accuracies, marker='o', label=label, color=algo_colour_map[algo] ,markersize=6, linewidth=1, alpha=1)
+            if enable_std:
+                plt.fill_between(strategy_sizes, 
+                            algo_mean_accuracies - 2 * algo_std_accuracies,
+                            algo_mean_accuracies + 2 * algo_std_accuracies,
+                            alpha=0.3)
+
+        # Adding a vertical line with a light gray color and dashed style
+        if enable_initial_lines:
+            plt.axvline(x=strategy_sizes[0], color='black', linestyle='--', alpha=0.9)
+
+    if enable_baseline:
+        plt.axhline(y=averaged_results['baseline'], color='red', label='Full Dataset Baseline', linestyle='-', linewidth=3, alpha=1)
+
+    plt.title(f"{strategies}")
     plt.legend()
     plt.show()
 
-plot_sim_results(averaged_results, al_algorithms, BUDGET_STRATEGIES, simulation_data, enable_std=False)
+
+averaged_results = average_strategy_results(simulation_data, AL_ALGORITHMS, BUDGET_STRATEGIES, seeds)
+
+df = al_improvements_over_random(averaged_results)
+print(df)
+
+# Plot with confidence intervals:
+strategies = [strategy for strategy in averaged_results if strategy != 'baseline']
+plot_sim_results(averaged_results, al_algorithms, strategies, enable_std=False)
+
+# Plot each strategy separately
+plot_sim_results(averaged_results, al_algorithms, [strategies[0]], enable_std=False)
+plot_sim_results(averaged_results, al_algorithms, [strategies[1]], enable_std=False)
+plot_sim_results(averaged_results, al_algorithms, [strategies[2]], enable_std=False)
+
+# Plot without baseline but with std
+plot_sim_results(averaged_results, al_algorithms, [strategies[0]], enable_std=True, enable_baseline=False, enable_initial_lines=False)
+plot_sim_results(averaged_results, al_algorithms, [strategies[1]], enable_std=True, enable_baseline=False, enable_initial_lines=False)
+plot_sim_results(averaged_results, al_algorithms, [strategies[2]], enable_std=True, enable_baseline=False, enable_initial_lines=False)
 
 
 
