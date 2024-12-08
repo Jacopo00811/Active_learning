@@ -17,11 +17,11 @@
 # if you want to receive e-mail notifications on a non-default address
 ##BSUB -u s215225@dtu.dk
 # -- Output File --
-#BSUB -o Output_%J.out
+#BSUB -o first_4_seeds_%J.out
 # -- Error File --
-#BSUB -e Output_%J.err
+#BSUB -e first_4_seeds_%J.err
 # -- estimated wall clock time (execution time): hh:mm -- 
-#BSUB -W 24:00 
+#BSUB -W 18:00 
 # -- Number of cores requested -- 
 #BSUB -n 4 
 # -- Specify the distribution of the cores: on a single node --

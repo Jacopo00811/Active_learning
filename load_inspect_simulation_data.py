@@ -3,6 +3,7 @@ import os
 import matplotlib.pyplot as plt
 from util_functions import format_time
 import numpy as np
+from scipy.stats import ttest_ind
 import pandas as pd
 
 
@@ -275,6 +276,24 @@ plot_sim_results(averaged_results, al_algorithms, [strategies[1]], enable_std=Tr
 plot_sim_results(averaged_results, al_algorithms, [strategies[2]], enable_std=True, enable_baseline=False, enable_initial_lines=False)
 
 
+# # plot_sim_results(averaged_results, al_algorithms, BUDGET_STRATEGIES, simulation_data, enable_std=False)
+# print("|||||||||")
+# print(averaged_results["random"].keys())
+# print(averaged_results["random"]["mean_test_accuracies"])
+# algorithms = list(averaged_results.keys())[:-1]
+
+# heat_map = np.zeros((len(algorithms), len(algorithms)))
+# for i, algo1 in enumerate(algorithms):
+#     for j, algo2 in enumerate(algorithms):
+#         if i != j:
+#             accuracies1 = averaged_results[algo1]['mean_test_accuracies'][:10]
+#             print(algo2)
+#             accuracies2 = averaged_results[algo2]['mean_test_accuracies'][:10]
+#             t_stat, p_value = ttest_ind(accuracies1, accuracies2)
+#             heat_map[i, j] = p_value
+#         else:
+#             heat_map[i, j] = 1  # Diagonal should be 1 (no difference)
+# print(heat_map)
 
 """
 POTENTIAL ANALYSIS TOOLS WE COULD IMPLEMENT:

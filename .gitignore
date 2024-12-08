@@ -171,3 +171,4 @@ TorchvisionModels/
 HpSearch/
 *.sh
 test.py
+test.py

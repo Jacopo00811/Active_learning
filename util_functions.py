@@ -606,7 +606,7 @@ def active_learning_loop(
         ### Print Iteration Information ###
         iter_time = time.time() - iter_time
         
-        print(f"  Iteration {i}/10 - Samples: {train_val_set_sizes[i]} ({(1 - train_val_ratio)*100:.0f}% val), Test: {test_accuracy:.2f}% acc, Time: {format_time(iter_time)}, Training: {format_time(training_time_iter)}, AL: {format_time(al_algorithm_time_iter) if al_algorithm_time_iter != 'None' else 'N/A'}")
+        print(f"  Iteration {i}/{budget_al_iterations} - Samples: {train_val_set_sizes[i]} ({(1 - train_val_ratio)*100:.0f}% val), Test: {test_accuracy:.2f}% acc, Time: {format_time(iter_time)}, Training: {format_time(training_time_iter)}, AL: {format_time(al_algorithm_time_iter) if al_algorithm_time_iter != 'None' else 'N/A'}")
 
         # Verify random states haven't unexpectedly changed
         assert torch.equal(torch.get_rng_state(), initial_torch_state), \
