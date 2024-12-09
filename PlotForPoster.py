@@ -1,7 +1,9 @@
 import json
 import matplotlib.pyplot as plt
+import numpy as np
+from scipy.stats import ttest_ind
 
-AL_ALGOS = ["random",
+heatmap_data = ["random",
                 "uncertainty",
                 "typiclust",
                 "margin",
@@ -34,12 +36,22 @@ def prepare_plot_data(data_dict):
         plot_data[algo_name] = {
             "raw": algo_accuracies,
             "averaged_over_seed": [],
+            "stddev_over_seed": [],
         }
         if algo_name == "baseline":
             plot_data["baseline"]["averaged_over_seed"] = algo_accuracies
             continue
-        averaged_accuracies = [sum(x)/len(x) for x in zip(*algo_accuracies)]
-        plot_data[algo_name]["averaged_over_seed"] = sum(averaged_accuracies)/len(averaged_accuracies)
+
+        acc_array = np.array(algo_accuracies)
+        
+        # Calculate mean and std across seeds
+        averaged_accuracies = np.mean(acc_array, axis=0)
+        std_accuracies = np.std(acc_array, axis=0)
+        
+        plot_data[algo_name]["averaged_over_seed"] = averaged_accuracies.tolist()
+        plot_data[algo_name]["stddev_over_seed"] = std_accuracies.tolist()
+
+
     return plot_data
 print("-----------------")
 dict_algos = {}
@@ -56,12 +68,70 @@ plot_data = prepare_plot_data(dict_algos)
 print(plot_data.keys())
 # Ploting the results
 
-plt.figure(figsize=(10, 5))
+plt.figure(figsize=(12, 6))
+
+# Plot each algorithm
 for algo_name, algo_data in plot_data.items():
     if algo_name == "baseline":
-        plt.plot(algo_data["averaged_over_seed"], label=algo_name, linestyle='--')
-    else:
-        plt.plot(algo_data["averaged_over_seed"], label=algo_name)
-plt.legend()
+        continue
+    
+    # Get data
+    means = algo_data["averaged_over_seed"]
+    stds = algo_data["stddev_over_seed"]
+    x = range(len(means))
+    
+    # Plot mean line with points
+    line = plt.plot(x, means, 
+             label=algo_name,
+             marker='o',
+             markersize=6,
+             linewidth=2,
+             markerfacecolor='white',
+             markeredgewidth=1.5)
+    
+    # Add confidence interval
+    color = line[0].get_color()
+    plt.fill_between(x, 
+                    [m - 2*s for m, s in zip(means, stds)],
+                    [m + 2*s for m, s in zip(means, stds)],
+                    alpha=0.2,
+                    color=color)
 
+# Customize plot
+plt.title('Performance Comparison of Active Learning Methods', fontsize=14, pad=15)
+plt.xlabel('Active Learning Iterations', fontsize=12)
+plt.ylabel('Accuracy (%)', fontsize=12)
 
+# Set x-ticks every 2 iterations
+plt.xticks(range(0, len(means), 2), fontsize=10)
+plt.yticks(fontsize=10)
+
+plt.grid(True, linestyle='--', alpha=0.3)
+plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0., fontsize=10)
+plt.tight_layout()
+
+plt.show()
+
+heatmap_data = []
+algos = []
+for algo_name, algo_data in plot_data.items():
+    if algo_name == "baseline":
+        continue
+    
+    # Get data
+    means = algo_data["averaged_over_seed"]
+    heatmap_data.append(means)
+    algos.append(algo_name)
+
+heatmap = np.zeros((len(heatmap_data), len(heatmap_data)))
+
+for i, algo1 in enumerate(heatmap_data):
+    for j, algo2 in enumerate(heatmap_data):
+        if i != j:
+            t_stat, p_value = ttest_ind(algo1, algo2)
+            heatmap[i, j] = p_value
+        else:
+            heatmap[i, j] = 1  # Diagonal should be 1 (no difference)
+np.set_printoptions(precision=4, suppress=True, floatmode='fixed')
+print(algos)
+print(heatmap)
