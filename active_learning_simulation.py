@@ -5,16 +5,18 @@ from torch.utils.data import random_split
 from torchvision import datasets, transforms
 import matplotlib.pyplot as plt
 import time
-from util_functions import set_global_seed, full_training_set_baseline, active_learning_loop, format_time
+from util_functions import set_global_seed, full_training_set_baseline, active_learning_loop, format_time, create_imbalanced_cifar10
 from analysis_functions import plot_al_performance_across_seeds
 import numpy as np
+from torch.utils.data import Subset
 
 
 
 ### Begin of Parameters ###
 
 ## Dataset & Model Parameters ##
-dataset_name = "CIFAR-10" # Dataset to use for the simulation (only CIFAR-10 supported)
+dataset_name = "CIFAR-10" # "CIFAR-10" or "MNIST"
+imbalanced_dataset = True # Enable to create an imbalanced dataset (only for CIFAR-10)
 model_name = "ResNet-18" # Model to use for the simulation (only ResNet-18 supported)
 
 ## Simulation Parameters ##
@@ -28,7 +30,7 @@ EPOCHS = 10 # Number of epochs to train the model for each budget size
 BATCH_SIZE = 32 # Batch size for data loaders
 
 ## Seed and Baseline Parameters ##
-seeds = list(range(35,45))# Set random seeds to decrease uncertainty
+seeds = [0, 1, 2, 3, 4] # Set random seeds to decrease uncertainty
 train_full_dataset_baseline = True # Enable to run the model with all labelled data to establish maximum performance baseline
 
 ## Active Learning Algorithm Parameters ##
@@ -48,6 +50,20 @@ BUDGET_STRATEGIES = {
     2: {"active": False, "initial_size": 4000, "query_size": 500, "num_al_iterations": 10}, # Final size: 9000
     3: {"active": False, "initial_size": 10000, "query_size": 1000, "num_al_iterations": 10}, # Final size: 20000
     4: {"active": False, "initial_size": 22000, "query_size": 2000, "num_al_iterations": 10}, # Final size: 42000 (almost full training/validation set size of 50000)
+}
+
+# Mimic real-world frequency distribution for CIFAR-10 classes (if enabled)
+base_ratios = {
+    0: 1.0,    # common classes
+    1: 1.0,
+    2: 0.7,    # moderately common
+    3: 0.7,
+    4: 0.4,    # uncommon
+    5: 0.4,
+    6: 0.2,    # rare
+    7: 0.2,
+    8: 0.1,    # very rare
+    9: 0.1
 }
 
 ### End of Parameters ###
@@ -230,12 +246,19 @@ if dataset_name == "CIFAR-10":
     # CIFAR-10 Dataset (Training and Test splits)
     train_val_dataset = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
     test_dataset = datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
+elif dataset_name == "MNIST":
+    # Load MNIST with transformations
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.1307,), (0.3081,))  # MNIST specific normalization values
+    ])
+
+    # MNIST Dataset (Training and Test splits)
+    train_val_dataset = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
+    test_dataset = datasets.MNIST(root='./data', train=False, download=True, transform=transform)
 else:
     raise ValueError(f"Dataset {dataset_name} not supported.")
 
-# Split into training and validation sets
-train_size = int(TRAIN_VAL_RATIO * len(train_val_dataset))
-val_size = len(train_val_dataset) - train_size
 
 ## Print Configuration Summary ##
 print(f"\nConfig summary:")
@@ -262,6 +285,22 @@ for seed_idx, seed in enumerate(seeds):
     # Set random seed and generator used for data loaders
     initial_generator = set_global_seed(seed)
 
+    # Create imbalanced CIFAR-10 dataset
+    if imbalanced_dataset and dataset_name == "CIFAR-10":
+        # Add small random variations to make it more realistic
+        keep_ratios = {k: min(1.0, max(0.05, v + np.random.normal(0, 0.05))) 
+                for k, v in base_ratios.items()}
+        
+        train_val_dataset = create_imbalanced_cifar10(train_val_dataset, keep_ratios)
+        print("Imbalanced CIFAR-10 training / validation created, len(train_val_dataset):", len(train_val_dataset))
+        print(f"Test dataset is unchanged, len(test_dataset): {len(test_dataset)}")
+    else:
+        print("Imbalanced dataset disabled, skipping...")
+
+    # Split into training and validation sets
+    train_size = int(TRAIN_VAL_RATIO * len(train_val_dataset))
+    val_size = len(train_val_dataset) - train_size
+
     # Split the dataset into training and validation
     train_dataset, val_dataset = random_split(train_val_dataset, [train_size, val_size], generator=initial_generator)
 
@@ -273,6 +312,7 @@ for seed_idx, seed in enumerate(seeds):
 
         test_accuracy = full_training_set_baseline(
             device=device, 
+            dataset_name=dataset_name,
             model_name=model_name, 
             pretrained_weights=pretrained_weights, 
             epochs=EPOCHS, 
@@ -318,6 +358,7 @@ for seed_idx, seed in enumerate(seeds):
             # Run active learning loop, return training set sizes and corresponding test accuracies
             train_val_set_sizes, test_accuracies, training_time_total, al_time_total = active_learning_loop(
                 device=device, 
+                dataset_name=dataset_name,
                 model_name=model_name,
                 pretrained_weights=pretrained_weights,
                 epochs=EPOCHS,

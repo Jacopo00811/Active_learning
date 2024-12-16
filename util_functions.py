@@ -76,7 +76,46 @@ def set_global_seed(seed):
     generator.manual_seed(seed)
     return generator
 
-def setup_model(device, model_name, pretrained_weights):
+def create_imbalanced_cifar10(train_data, keep_ratios):
+    """
+    keep_ratios: dict mapping class_idx -> percentage to keep (0.0-1.0)
+    Example: {0: 1.0, 1: 0.5, 2: 0.1, ...} 
+        - keeps all planes (class 0)
+        - keeps 50% of cars (class 1)
+        - keeps 10% of birds (class 2)
+    """
+    # Validate inputs
+    if not all(0 <= ratio <= 1 for ratio in keep_ratios.values()):
+        raise ValueError("All ratios must be between 0 and 1")
+    if not all(0 <= idx <= 9 for idx in keep_ratios.keys()):
+        raise ValueError("Class indices must be between 0 and 9")
+    
+    indices = []
+    targets = np.array(train_data.targets)
+    
+    # Track class distribution
+    original_dist = {}
+    new_dist = {}
+    
+    for class_idx, ratio in keep_ratios.items():
+        class_indices = np.where(targets == class_idx)[0]
+        original_dist[class_idx] = len(class_indices)
+        keep_size = int(len(class_indices) * ratio)
+        # Randomly sample to avoid potential ordering bias
+        selected_indices = np.random.choice(class_indices, keep_size, replace=False)
+        indices.extend(selected_indices)
+        new_dist[class_idx] = keep_size
+    
+    print(f"Imbalanced CIFAR-10 created: {len(indices)} samples kept out of {len(train_data)}")
+    print("\nClass distribution:")
+    for class_idx in range(10):
+        orig = original_dist.get(class_idx, 0)
+        new = new_dist.get(class_idx, 0)
+        print(f"Class {class_idx}: {new}/{orig} ({(new/orig)*100:.1f}%)")
+
+    return Subset(train_data, indices)
+
+def setup_model(device, dataset_name, model_name, pretrained_weights):
     """
     Setup a fresh model instance
    
@@ -94,6 +133,8 @@ def setup_model(device, model_name, pretrained_weights):
         
         # Create a new model instance
         model = torchvision.models.resnet18(weights=weights)
+        if dataset_name == "MNIST":
+            model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
         model.fc = nn.Linear(model.fc.in_features, 10)
         model = model.to(device)
         return model
@@ -139,7 +180,9 @@ def train_model(device, model, epochs, train_loader, val_loader, generator=None)
     model.train()
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=hyperparameters["learning_rate"], weight_decay=hyperparameters['weight_decay'])
+    # optimizer = optim.Adam(model.parameters(), lr=hyperparameters["learning_rate"], weight_decay=hyperparameters['weight_decay'])
+    optimizer = optim.SGD(model.parameters(), 
+                     momentum=0.9)  # lr=0.01 and weight_decay=0 by default
     scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer, step_size=hyperparameters["step_size"], gamma=hyperparameters["gamma"])    
     
@@ -162,7 +205,7 @@ def train_model(device, model, epochs, train_loader, val_loader, generator=None)
         print(f"    Epoch {epoch+1}/{epochs}, Validation: {val_accuracy:.2f}% acc", end='\r') # Print epoch information, overwrite the line for each epoch
     print(end='\x1b[2K\r')  # Clear the line after training is finished
 
-def full_training_set_baseline(device, model_name, pretrained_weights, epochs, batch_size, train_dataset, val_dataset, test_dataset, generator):
+def full_training_set_baseline(device, dataset_name, model_name, pretrained_weights, epochs, batch_size, train_dataset, val_dataset, test_dataset, generator):
     # Create a new generator specifically for this run. This ensures we start from the same state every time
     run_generator = torch.Generator()
     run_generator.manual_seed(generator.initial_seed())
@@ -182,6 +225,7 @@ def full_training_set_baseline(device, model_name, pretrained_weights, epochs, b
     # Initialize model
     model=setup_model(
         device=device, 
+        dataset_name=dataset_name,
         model_name=model_name, 
         pretrained_weights=pretrained_weights
     )
@@ -208,6 +252,7 @@ def full_training_set_baseline(device, model_name, pretrained_weights, epochs, b
 
 def active_learning_loop(
     device, 
+    dataset_name,
     model_name,
     pretrained_weights,
     epochs,
@@ -573,6 +618,7 @@ def active_learning_loop(
         # Re-initialize model with initial state
         model = setup_model(
             device=device, 
+            dataset_name=dataset_name,
             model_name=model_name, 
             pretrained_weights=pretrained_weights
         )

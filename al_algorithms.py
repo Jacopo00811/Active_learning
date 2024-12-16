@@ -49,42 +49,98 @@ def typiclust_sampling(model, typiclust_obj, unlabelled_loader_relative, budget)
 
 
 def uncertainty_sampling_margin(device, model, unlabelled_loader, label_batch_size):
+    """
+    Select samples for labeling using margin sampling strategy.
+    Margin sampling selects samples where the difference between the top two class
+    probabilities is smallest (highest uncertainty).
+    
+    Args:
+        device (torch.device): Device to use for computation
+        model (nn.Module): Trained model
+        unlabelled_loader (DataLoader): DataLoader for unlabelled data
+        label_batch_size (int): Number of samples to select for labeling
+        
+    Returns:
+        list: Indices of selected samples for labeling
+    """
     model.eval()
-    uncertainties = []
-    all_indices = []
+    margins = []
+    indices = []
+    
     with torch.no_grad():
-        for idx, (images, _) in enumerate(unlabelled_loader):
-            images = images.to(device)
-            outputs = model(images)
-            softmax_outputs = torch.nn.functional.softmax(outputs, dim=1)
-            sorted_outputs, _ = torch.sort(softmax_outputs, dim=1, descending=True)
-            margin = sorted_outputs[:, 0] - sorted_outputs[:, 1]
-            uncertainties.extend(margin.cpu().numpy())
-            all_indices.extend(list(range(idx * images.size(0), (idx * images.size(0)) + images.size(0))))
-
-        uncertainties = torch.tensor(uncertainties)
-        _, uncertain_indices = torch.topk(uncertainties, largest=False, k=label_batch_size)
-        uncertain_indices = uncertain_indices.tolist()
-        return [all_indices[i] for i in uncertain_indices]
+        for batch_idx, (data, _) in enumerate(unlabelled_loader):
+            # Get model predictions
+            data = data.to(device)
+            outputs = torch.softmax(model(data), dim=1)
+            
+            # Get top two probabilities
+            top2_probs, _ = torch.topk(outputs, k=2, dim=1)
+            
+            # Calculate margin between top two probabilities
+            margin = top2_probs[:, 0] - top2_probs[:, 1]
+            
+            # Store margins and corresponding indices
+            margins.extend(margin.cpu().numpy())
+            indices.extend(range(batch_idx * unlabelled_loader.batch_size, 
+                               min((batch_idx + 1) * unlabelled_loader.batch_size,
+                                   len(unlabelled_loader.dataset))))
+    
+    # Convert to numpy arrays for efficient operations
+    margins = np.array(margins)
+    indices = np.array(indices)
+    
+    # Get indices of samples with smallest margins (highest uncertainty)
+    # Use argsort and ensure unique indices are selected
+    sorted_indices = np.argsort(margins)
+    selected_indices = []
+    unique_indices_set = set()
+    
+    # Select unique indices until we have label_batch_size samples
+    idx = 0
+    while len(selected_indices) < label_batch_size and idx < len(sorted_indices):
+        current_idx = indices[sorted_indices[idx]]
+        if current_idx not in unique_indices_set:
+            selected_indices.append(current_idx)
+            unique_indices_set.add(current_idx)
+        idx += 1
+        
+    if len(selected_indices) < label_batch_size:
+        raise ValueError(f"Could not find {label_batch_size} unique samples. Only found {len(selected_indices)}")
+        
+    return selected_indices
 
 def uncertainty_sampling_entropy(device, model, unlabelled_loader, label_batch_size):
     model.eval()
     uncertainties = []
     all_indices = []
+    
     with torch.no_grad():
-        for idx, (images, _) in enumerate(unlabelled_loader):
+        for batch_idx, (images, _) in enumerate(unlabelled_loader):
+            # Get actual indices from the dataset
+            start_idx = batch_idx * unlabelled_loader.batch_size
+            indices = list(range(start_idx, min(start_idx + len(images), len(unlabelled_loader.dataset))))
+            
             images = images.to(device)
             outputs = model(images)
             softmax_outputs = torch.nn.functional.softmax(outputs, dim=1)
             log_softmax_outputs = torch.nn.functional.log_softmax(outputs, dim=1)
             entropy = -torch.sum(softmax_outputs * log_softmax_outputs, dim=1)
+            
             uncertainties.extend(entropy.cpu().numpy())
-            all_indices.extend(list(range(idx * images.size(0), (idx * images.size(0)) + images.size(0))))
+            all_indices.extend(indices)
     
-        uncertainties = torch.tensor(uncertainties)
-        _,uncertain_indices = torch.topk(torch.tensor(uncertainties), k=label_batch_size)
-        uncertain_indices = uncertain_indices.tolist()
-        return [all_indices[i] for i in uncertain_indices]
+    # Ensure no duplicates in indices
+    assert len(all_indices) == len(set(all_indices)), "Duplicate indices found in collection phase"
+    
+    uncertainties = torch.tensor(uncertainties)
+    _, uncertain_indices = torch.topk(torch.tensor(uncertainties), k=label_batch_size)
+    uncertain_indices = uncertain_indices.tolist()
+    
+    selected_indices = [all_indices[i] for i in uncertain_indices]
+    # Double-check no duplicates in final selection
+    assert len(selected_indices) == len(set(selected_indices)), "Duplicate indices found in selection phase"
+    
+    return selected_indices
 
 def hybrid_sampling_badge(device, model, unlabelled_loader, label_batch_size, random_state):
     def gradieant_embeddings(dataloader, model, device):
