@@ -1,7 +1,7 @@
 #!/bin/bash
 # embedded options to bsub - start with #BSUB
 # -- our name ---
-#BSUB -J ActiveLearinig
+#BSUB -J diffrent_class_sizes
 # -- choose queue --
 #BSUB -q gpua100
 # -- specify that we need 4GB of memory per core/slot --
@@ -21,7 +21,7 @@
 # -- Error File --
 #BSUB -e first_4_seeds_%J.err
 # -- estimated wall clock time (execution time): hh:mm -- 
-#BSUB -W 18:00 
+#BSUB -W 20:00 
 # -- Number of cores requested -- 
 #BSUB -n 4 
 # -- Specify the distribution of the cores: on a single node --
