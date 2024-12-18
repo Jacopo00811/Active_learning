@@ -1,0 +1,339 @@
+{
+    "config": {
+        "simulation": {
+            "save_results": true,
+            "relative_save_folder": "./run_results",
+            "device": "mps",
+            "dataset_name": "CIFAR-10",
+            "model_name": "ResNet-18"
+        },
+        "model": {
+            "pretrained_weights": true,
+            "train_val_ratio": 0.8,
+            "epochs": 8,
+            "batch_size": 32
+        },
+        "seed_and_baseline": {
+            "seeds": [
+                0,
+                1
+            ],
+            "train_full_dataset_baseline": true
+        },
+        "active_learning": {
+            "al_algorithms": [
+                "random",
+                "uncertainty"
+            ]
+        },
+        "budget": {
+            "budget_strategies": [
+                1,
+                2
+            ],
+            "budget_initial_sizes": [
+                1000,
+                4000
+            ],
+            "budget_query_sizes": [
+                250,
+                500
+            ],
+            "budget_total_al_iterations": [
+                10,
+                10
+            ]
+        }
+    },
+    "runtimes": {
+        "simulation": 2641.656152009964,
+        "seeds": {
+            "seed_0": 1294.8074362277985,
+            "seed_1": 1346.8477828502655
+        },
+        "full_dataset_baselines": {
+            "seed_0_full_dataset_baseline": 191.56186819076538,
+            "seed_1_full_dataset_baseline": 198.74287915229797
+        },
+        "budget_strategies": {
+            "seed_0_budget_1": 380.3739550113678,
+            "seed_0_budget_2": 722.6775751113892,
+            "seed_1_budget_1": 378.0011351108551,
+            "seed_1_budget_2": 769.9654791355133
+        },
+        "training_and_al_algorithms": {
+            "seed_0_budget_1_random": {
+                "training": 97.42664241790771,
+                "al": 0.02759385108947754
+            },
+            "seed_0_budget_1_uncertainty": {
+                "training": 94.9401786327362,
+                "al": 105.35499095916748
+            },
+            "seed_0_budget_2_random": {
+                "training": 271.4210352897644,
+                "al": 0.02632451057434082
+            },
+            "seed_0_budget_2_uncertainty": {
+                "training": 272.7301416397095,
+                "al": 94.89205598831177
+            },
+            "seed_1_budget_1_random": {
+                "training": 94.37293767929077,
+                "al": 0.026866674423217773
+            },
+            "seed_1_budget_1_uncertainty": {
+                "training": 95.36154294013977,
+                "al": 105.5630030632019
+            },
+            "seed_1_budget_2_random": {
+                "training": 265.7456257343292,
+                "al": 0.025496721267700195
+            },
+            "seed_1_budget_2_uncertainty": {
+                "training": 330.5581123828888,
+                "al": 95.85623717308044
+            }
+        }
+    },
+    "results": {
+        "seed_0": {
+            "full_dataset_baseline": 80.07,
+            "budget_strategy_1": {
+                "random": {
+                    "train_val_set_sizes": [
+                        1000,
+                        1250,
+                        1500,
+                        1750,
+                        2000,
+                        2250,
+                        2500,
+                        2750,
+                        3000,
+                        3250,
+                        3500
+                    ],
+                    "test_accuracies": [
+                        52.45,
+                        54.81,
+                        56.23,
+                        52.5,
+                        58.97,
+                        59.43,
+                        58.23,
+                        61.82,
+                        62.57,
+                        57.39,
+                        60.59
+                    ]
+                },
+                "uncertainty": {
+                    "train_val_set_sizes": [
+                        1000,
+                        1250,
+                        1500,
+                        1750,
+                        2000,
+                        2250,
+                        2500,
+                        2750,
+                        3000,
+                        3250,
+                        3500
+                    ],
+                    "test_accuracies": [
+                        52.45,
+                        52.24,
+                        57.21,
+                        56.26,
+                        57.81,
+                        56.6,
+                        59.05,
+                        57.17,
+                        61.77,
+                        62.68,
+                        63.25
+                    ]
+                }
+            },
+            "budget_strategy_2": {
+                "random": {
+                    "train_val_set_sizes": [
+                        4000,
+                        4500,
+                        5000,
+                        5500,
+                        6000,
+                        6500,
+                        7000,
+                        7500,
+                        8000,
+                        8500,
+                        9000
+                    ],
+                    "test_accuracies": [
+                        64.31,
+                        63.19,
+                        65.77,
+                        67.77,
+                        67.93,
+                        64.71,
+                        66.89,
+                        69.26,
+                        70.12,
+                        68.89,
+                        70.29
+                    ]
+                },
+                "uncertainty": {
+                    "train_val_set_sizes": [
+                        4000,
+                        4500,
+                        5000,
+                        5500,
+                        6000,
+                        6500,
+                        7000,
+                        7500,
+                        8000,
+                        8500,
+                        9000
+                    ],
+                    "test_accuracies": [
+                        64.31,
+                        65.44,
+                        67.83,
+                        68.48,
+                        66.16,
+                        69.15,
+                        68.04,
+                        67.98,
+                        68.58,
+                        70.58,
+                        70.28
+                    ]
+                }
+            }
+        },
+        "seed_1": {
+            "full_dataset_baseline": 80.34,
+            "budget_strategy_1": {
+                "random": {
+                    "train_val_set_sizes": [
+                        1000,
+                        1250,
+                        1500,
+                        1750,
+                        2000,
+                        2250,
+                        2500,
+                        2750,
+                        3000,
+                        3250,
+                        3500
+                    ],
+                    "test_accuracies": [
+                        51.68,
+                        55.97,
+                        56.96,
+                        57.93,
+                        56.83,
+                        59.29,
+                        57.34,
+                        61.72,
+                        61.08,
+                        64.49,
+                        61.19
+                    ]
+                },
+                "uncertainty": {
+                    "train_val_set_sizes": [
+                        1000,
+                        1250,
+                        1500,
+                        1750,
+                        2000,
+                        2250,
+                        2500,
+                        2750,
+                        3000,
+                        3250,
+                        3500
+                    ],
+                    "test_accuracies": [
+                        51.68,
+                        51.62,
+                        55.17,
+                        56.31,
+                        54.76,
+                        56.02,
+                        59.82,
+                        58.8,
+                        62.45,
+                        61.26,
+                        63.21
+                    ]
+                }
+            },
+            "budget_strategy_2": {
+                "random": {
+                    "train_val_set_sizes": [
+                        4000,
+                        4500,
+                        5000,
+                        5500,
+                        6000,
+                        6500,
+                        7000,
+                        7500,
+                        8000,
+                        8500,
+                        9000
+                    ],
+                    "test_accuracies": [
+                        65.28,
+                        65.91,
+                        66.67,
+                        67.83,
+                        67.17,
+                        68.23,
+                        69.78,
+                        68.86,
+                        66.49,
+                        71.18,
+                        70.95
+                    ]
+                },
+                "uncertainty": {
+                    "train_val_set_sizes": [
+                        4000,
+                        4500,
+                        5000,
+                        5500,
+                        6000,
+                        6500,
+                        7000,
+                        7500,
+                        8000,
+                        8500,
+                        9000
+                    ],
+                    "test_accuracies": [
+                        65.28,
+                        65.27,
+                        66.14,
+                        67.16,
+                        66.85,
+                        68.79,
+                        68.75,
+                        67.33,
+                        71.15,
+                        68.69,
+                        71.14
+                    ]
+                }
+            }
+        }
+    }
+}

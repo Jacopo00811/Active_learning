@@ -16,7 +16,7 @@ from torch.utils.data import Subset
 
 ## Dataset & Model Parameters ##
 dataset_name = "CIFAR-10" # "CIFAR-10" or "MNIST"
-imbalanced_dataset = True # Enable to create an imbalanced dataset (only for CIFAR-10)
+imbalanced_dataset = False # Enable to create an imbalanced dataset (only for CIFAR-10)
 model_name = "ResNet-18" # Model to use for the simulation (only ResNet-18 supported)
 
 ## Simulation Parameters ##
@@ -246,6 +246,10 @@ if dataset_name == "CIFAR-10":
     # CIFAR-10 Dataset (Training and Test splits)
     train_val_dataset = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
     test_dataset = datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
+
+    # Create a copy by loading the dataset again
+    OG_train_val_dataset = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
+
 elif dataset_name == "MNIST":
     # Load MNIST with transformations
     transform = transforms.Compose([
@@ -256,6 +260,10 @@ elif dataset_name == "MNIST":
     # MNIST Dataset (Training and Test splits)
     train_val_dataset = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
     test_dataset = datasets.MNIST(root='./data', train=False, download=True, transform=transform)
+
+    # Create a copy by loading the dataset again
+    OG_train_val_dataset = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
+
 else:
     raise ValueError(f"Dataset {dataset_name} not supported.")
 
@@ -291,7 +299,7 @@ for seed_idx, seed in enumerate(seeds):
         keep_ratios = {k: min(1.0, max(0.05, v + np.random.normal(0, 0.05))) 
                 for k, v in base_ratios.items()}
         
-        train_val_dataset = create_imbalanced_cifar10(train_val_dataset, keep_ratios)
+        train_val_dataset = create_imbalanced_cifar10(OG_train_val_dataset, keep_ratios)
         print("Imbalanced CIFAR-10 training / validation created, len(train_val_dataset):", len(train_val_dataset))
         print(f"Test dataset is unchanged, len(test_dataset): {len(test_dataset)}")
     else:
