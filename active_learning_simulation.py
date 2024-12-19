@@ -262,7 +262,7 @@ elif dataset_name == "MNIST":
     test_dataset = datasets.MNIST(root='./data', train=False, download=True, transform=transform)
 
     # Create a copy by loading the dataset again
-    OG_train_val_dataset = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
+    OG_train_val_dataset = datasets.MNIST(root='./data', train=False, download=True, transform=transform)
 
 else:
     raise ValueError(f"Dataset {dataset_name} not supported.")

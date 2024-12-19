@@ -188,6 +188,8 @@ def train_model(device, model, epochs, train_loader, val_loader, generator=None)
     
     for epoch in range(epochs):    
         for images, labels in train_loader:
+            if images.size(0)<=1:
+                continue
             images, labels = images.to(device), labels.to(device)
             optimizer.zero_grad()
             outputs = model(images)

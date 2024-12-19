@@ -171,7 +171,10 @@ def hybrid_sampling_badge(device, model, unlabelled_loader, label_batch_size, ra
                 batch_embed = term_1.unsqueeze(-1)@penultimate_features.unsqueeze(1)
                 batch_embed = batch_embed.reshape(images.size(0), -1)
                 embeddings.extend(batch_embed.cpu())
-                indices.extend(list(range(idx * images.size(0), (idx * images.size(0)) + images.size(0))))
+                # indices.extend(list(range(idx * images.size(0), (idx * images.size(0)) + images.size(0))))
+                indices.extend(range(idx * unlabelled_loader.batch_size, 
+                               min((idx + 1) * unlabelled_loader.batch_size,
+                                   len(unlabelled_loader.dataset))))
 
         pca = PCA(n_components=800, random_state=random_state)
         normalizer = StandardScaler()
