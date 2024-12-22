@@ -1,6 +1,6 @@
 # Abalation study on active learning
 ## Overview
-This project, for the course Introduction to Deep Learning (Fall 2024) at DTU, investigates the effectiveness of different active learning (AL) algorithms in reducing annotation costs while maintaining model performance. We focus on image classification using the CIFAR-10 dataset and ResNet-18 architecture.
+This project, for the course 02456 Introduction to Deep Learning (Fall 2024) at DTU, investigates the effectiveness of different active learning (AL) algorithms in reducing annotation costs while maintaining model performance. We focus on image classification using the CIFAR-10 dataset and ResNet-18 architecture.
 
 ## Abstract
 Active Learning (AL) is a machine learning approach that focuses on selecting the most informative data points for labeling, aiming to achieve optimal model performance while minimizing the amount of labeled data required. This is particularly useful for reducing the high manual labor costs of annotating large, unlabeled datasets for deep learning models.
